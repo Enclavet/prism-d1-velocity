@@ -1,0 +1,286 @@
+# prism-eval-gate.yml — Run Bedrock Evaluation on AI-generated code in PRs.
+#
+# Copy this file to .github/workflows/prism-eval-gate.yml in your repo.
+#
+# Required setup:
+#   - OIDC provider configured for GitHub Actions in your AWS account
+#   - IAM role with bedrock:InvokeModel and events:PutEvents permissions
+#   - Repository variable PRISM_TEAM_ID set to your team identifier
+#   - Repository variable PRISM_AWS_ROLE_ARN set to the OIDC role ARN
+#   - eval-harness/ directory copied into your repo
+
+name: PRISM Eval Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, master]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.PRISM_AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq bc
+
+      - name: Identify AI-generated changes
+        id: detect-ai
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.sha }}"
+
+          # Get commits with AI-Origin trailers — iterate individually
+          # to avoid multi-line body issues with grep -B1
+          AI_SHAS=""
+          for SHA in $(git rev-list "${BASE_SHA}..${HEAD_SHA}"); do
+            if git log -1 --format='%B' "${SHA}" | grep -q 'AI-Origin: ai-generated\|AI-Origin: ai-assisted'; then
+              AI_SHAS="${AI_SHAS} ${SHA}"
+            fi
+          done
+          AI_SHAS=$(echo "${AI_SHAS}" | xargs)
+
+          if [[ -z "${AI_SHAS}" ]]; then
+            echo "No AI-generated commits found in this PR."
+            echo "has_ai_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has_ai_changes=true" >> "$GITHUB_OUTPUT"
+
+          # Collect changed files from AI commits
+          CHANGED_FILES=""
+          for SHA in ${AI_SHAS}; do
+            FILES=$(git diff-tree --no-commit-id --name-only -r "${SHA}" \
+              | grep -E '\.(ts|js|py|go|java|rs|tsx|jsx)$' || true)
+            CHANGED_FILES="${CHANGED_FILES}\n${FILES}"
+          done
+
+          UNIQUE_FILES=$(echo -e "${CHANGED_FILES}" | sort -u | grep -v '^$' || true)
+
+          if [[ -z "${UNIQUE_FILES}" ]]; then
+            echo "AI commits found but no evaluable source files changed."
+            echo "has_ai_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "${UNIQUE_FILES}" > /tmp/ai-changed-files.txt
+          FILE_COUNT=$(echo "${UNIQUE_FILES}" | wc -l | tr -d ' ')
+          echo "Found ${FILE_COUNT} AI-changed source files."
+          echo "file_count=${FILE_COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Run Bedrock Evaluation
+        id: eval
+        if: steps.detect-ai.outputs.has_ai_changes == 'true'
+        run: |
+          chmod +x eval-harness/run-eval.sh
+
+          PASS_COUNT=0
+          FAIL_COUNT=0
+          TOTAL_SCORE=0
+          TOTAL_HALLUCINATIONS=0
+          RESULTS=""
+
+          while IFS= read -r FILE; do
+            [[ -z "${FILE}" ]] && continue
+            [[ ! -f "${FILE}" ]] && continue
+
+            echo "Evaluating: ${FILE}"
+
+            # Determine rubric based on file path
+            if echo "${FILE}" | grep -qiE '(api|handler|route|controller)'; then
+              RUBRIC="eval-harness/rubrics/api-response-quality.json"
+            else
+              RUBRIC="eval-harness/rubrics/code-quality.json"
+            fi
+
+            # Run eval (capture exit code without failing the step)
+            set +e
+            OUTPUT=$(./eval-harness/run-eval.sh "${RUBRIC}" "${FILE}" 2>&1)
+            EXIT_CODE=$?
+            set -e
+
+            SCORE=$(echo "${OUTPUT}" | grep '^Score:' | awk '{print $2}' || echo "0")
+            RESULT=$(echo "${OUTPUT}" | grep '^Result:' | awk '{print $2}' || echo "UNKNOWN")
+
+            TOTAL_SCORE=$(echo "${TOTAL_SCORE} + ${SCORE}" | bc -l 2>/dev/null || echo "${TOTAL_SCORE}")
+            if [[ "${RESULT}" == "PASS" ]]; then
+              PASS_COUNT=$((PASS_COUNT + 1))
+            else
+              FAIL_COUNT=$((FAIL_COUNT + 1))
+            fi
+
+            # Capture failure categories from eval output
+            FILE_HALLUCINATIONS=$(echo "${OUTPUT}" | grep -ci 'hallucinated\|hallucination\|does not exist' || true)
+            TOTAL_HALLUCINATIONS=$((TOTAL_HALLUCINATIONS + FILE_HALLUCINATIONS))
+
+            RESULTS="${RESULTS}\n| \`${FILE}\` | ${SCORE} | ${RESULT} |"
+          done < /tmp/ai-changed-files.txt
+
+          echo "hallucinations_caught=${TOTAL_HALLUCINATIONS}" >> "$GITHUB_OUTPUT"
+
+          TOTAL_FILES=$((PASS_COUNT + FAIL_COUNT))
+          if [[ "${TOTAL_FILES}" -gt 0 ]]; then
+            AVG_SCORE=$(echo "scale=4; ${TOTAL_SCORE} / ${TOTAL_FILES}" | bc -l)
+          else
+            AVG_SCORE="0"
+          fi
+
+          echo "pass_count=${PASS_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "fail_count=${FAIL_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "avg_score=${AVG_SCORE}" >> "$GITHUB_OUTPUT"
+          echo "total_files=${TOTAL_FILES}" >> "$GITHUB_OUTPUT"
+
+          # Save results table for the comment
+          echo -e "${RESULTS}" > /tmp/eval-results-table.txt
+
+          # Determine overall pass/fail
+          if [[ "${FAIL_COUNT}" -gt 0 ]]; then
+            echo "overall_result=FAIL" >> "$GITHUB_OUTPUT"
+          else
+            echo "overall_result=PASS" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post PR comment
+        if: steps.detect-ai.outputs.has_ai_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const avgScore = '${{ steps.eval.outputs.avg_score }}';
+            const passCount = '${{ steps.eval.outputs.pass_count }}';
+            const failCount = '${{ steps.eval.outputs.fail_count }}';
+            const totalFiles = '${{ steps.eval.outputs.total_files }}';
+            const result = '${{ steps.eval.outputs.overall_result }}';
+            const emoji = result === 'PASS' ? ':white_check_mark:' : ':x:';
+
+            const fs = require('fs');
+            const resultsTable = fs.readFileSync('/tmp/eval-results-table.txt', 'utf8').trim();
+
+            const body = `## ${emoji} PRISM Eval Gate — ${result}
+
+            **Average Score**: ${avgScore} | **Files Evaluated**: ${totalFiles} | **Pass**: ${passCount} | **Fail**: ${failCount}
+
+            | File | Score | Result |
+            |---|---|---|
+            ${resultsTable}
+
+            > Threshold: 0.82 | Evaluated by Amazon Bedrock
+            > [PRISM D1 Velocity](https://github.com/your-org/prism-d1-velocity)`;
+
+            // Find and update existing comment or create new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existingComment = comments.find(c => c.body.includes('PRISM Eval Gate'));
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Post skip comment
+        if: steps.detect-ai.outputs.has_ai_changes != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('PRISM Eval Gate'));
+            if (!existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: ':white_check_mark: **PRISM Eval Gate** — No AI-generated code detected. Evaluation skipped.',
+              });
+            }
+
+      - name: Emit prism.d1.eval event
+        if: steps.detect-ai.outputs.has_ai_changes == 'true'
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          EVAL_EVENT=$(jq -n \
+            --arg team_id "${{ vars.PRISM_TEAM_ID }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${TIMESTAMP}" \
+            --argjson score "${{ steps.eval.outputs.avg_score }}" \
+            --arg result "${{ steps.eval.outputs.overall_result }}" \
+            --argjson total_files "${{ steps.eval.outputs.total_files }}" \
+            --argjson pass_count "${{ steps.eval.outputs.pass_count }}" \
+            --argjson fail_count "${{ steps.eval.outputs.fail_count }}" \
+            --arg pr_number "${{ github.event.pull_request.number }}" \
+            '{
+              "team_id": $team_id,
+              "repo": $repo,
+              "timestamp": $timestamp,
+              "prism_level": 2,
+              "metric": {
+                "name": "eval_score",
+                "value": $score,
+                "unit": "score"
+              },
+              "ai_context": {
+                "tool": "bedrock-eval",
+                "model": "anthropic.claude-sonnet-4-20250514",
+                "origin": "ai-generated"
+              },
+              "ai_dora": {
+                "eval_gate_pass_rate": (if ($total_files > 0) then ($pass_count / $total_files) else 0 end)
+              },
+              "eval": {
+                "total_files": $total_files,
+                "pass_count": $pass_count,
+                "fail_count": $fail_count,
+                "result": $result,
+                "pr_number": ($pr_number | tonumber)
+              }
+            }')
+
+          aws events put-events \
+            --region us-west-2 \
+            --entries "[{
+              \"Source\": \"prism.d1.velocity\",
+              \"DetailType\": \"prism.d1.eval\",
+              \"EventBusName\": \"prism-d1-metrics\",
+              \"Detail\": $(echo "${EVAL_EVENT}" | jq -c '.' | jq -Rs '.')
+            }]"
+
+      - name: Fail if eval gate failed
+        if: steps.eval.outputs.overall_result == 'FAIL'
+        run: |
+          echo "Eval gate FAILED. One or more files scored below threshold."
+          exit 1

@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+import 'source-map-support/register';
+import * as cdk from 'aws-cdk-lib';
+import { MetricsPipelineStack } from '../lib/metrics-pipeline-stack';
+import { ApiStack } from '../lib/api-stack';
+import { DashboardStack } from '../lib/dashboard-stack';
+
+const app = new cdk.App();
+
+const env: cdk.Environment = {
+  account: process.env.CDK_DEFAULT_ACCOUNT,
+  region: process.env.CDK_DEFAULT_REGION ?? 'us-west-2',
+};
+
+const pipelineStack = new MetricsPipelineStack(app, 'PrismD1MetricsPipeline', {
+  env,
+  description: 'PRISM D1 Velocity - Core metrics event pipeline (EventBridge, DynamoDB)',
+  tags: {
+    Project: 'PRISM',
+    Domain: 'D1-Velocity',
+    Component: 'MetricsPipeline',
+  },
+});
+
+const apiStack = new ApiStack(app, 'PrismD1Api', {
+  env,
+  description: 'PRISM D1 Velocity - Metric ingestion and query API',
+  eventBus: pipelineStack.eventBus,
+  eventsTable: pipelineStack.eventsTable,
+  metadataTable: pipelineStack.metadataTable,
+  tags: {
+    Project: 'PRISM',
+    Domain: 'D1-Velocity',
+    Component: 'Api',
+  },
+});
+
+const dashboardStack = new DashboardStack(app, 'PrismD1Dashboard', {
+  env,
+  description: 'PRISM D1 Velocity - CloudWatch dashboards and alarms',
+  tags: {
+    Project: 'PRISM',
+    Domain: 'D1-Velocity',
+    Component: 'Dashboard',
+  },
+});
+
+apiStack.addDependency(pipelineStack);
+
+app.synth();

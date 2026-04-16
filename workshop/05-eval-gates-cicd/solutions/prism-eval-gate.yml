@@ -1,0 +1,90 @@
+# Reference implementation: .github/workflows/prism-eval-gate.yml
+
+name: PRISM Eval Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**/*.ts'
+      - 'src/**/*.tsx'
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.PRISM_METRICS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Install dependencies
+        run: sudo apt-get install -y jq bc
+
+      - name: Run eval gate
+        id: eval
+        run: |
+          chmod +x .prism/eval/run-eval-gate.sh
+          .prism/eval/run-eval-gate.sh .prism/eval/api-rubric.json origin/${{ github.base_ref }} 2>&1 | tee eval-output.txt
+        continue-on-error: true
+
+      - name: Post eval results as PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('eval-output.txt', 'utf8');
+            const status = '${{ steps.eval.outcome }}' === 'success' ? 'PASSED' : 'FAILED';
+            const emoji = status === 'PASSED' ? '' : '';
+
+            const body = `## PRISM Eval Gate: ${status}
+
+            \`\`\`
+            ${output}
+            \`\`\`
+
+            ${status === 'FAILED' ? '> **Action required:** Fix the failing criteria before this PR can merge.' : '> All quality checks passed.'}
+            `;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Emit eval metric
+        if: always()
+        env:
+          EVENT_BUS_NAME: ${{ vars.PRISM_EVENT_BUS_NAME || 'prism-metrics' }}
+        run: |
+          DETAIL=$(jq -n \
+            --arg repo "${{ github.repository }}" \
+            --argjson pr "${{ github.event.pull_request.number }}" \
+            --arg result "${{ steps.eval.outcome }}" \
+            --arg rubric "api_spec_compliance" \
+            '{repo: $repo, pr_number: $pr, result: $result, rubric: $rubric}')
+
+          aws events put-events --entries "[{
+            \"Source\": \"prism.d1.velocity\",
+            \"DetailType\": \"EvalGateResult\",
+            \"EventBusName\": \"$EVENT_BUS_NAME\",
+            \"Detail\": $(echo "$DETAIL" | jq -Rs .)
+          }]"
+
+      - name: Fail if eval gate failed
+        if: steps.eval.outcome == 'failure'
+        run: exit 1

@@ -1,0 +1,229 @@
+# prism-ai-metrics.yml — Emit AI-assisted development metrics on PR merge.
+#
+# Copy this file to .github/workflows/prism-ai-metrics.yml in your repo.
+#
+# Required setup:
+#   - OIDC provider configured for GitHub Actions in your AWS account
+#   - IAM role with events:PutEvents on the prism-d1-metrics bus
+#   - Repository variable PRISM_TEAM_ID set to your team identifier
+#   - Repository variable PRISM_AWS_ROLE_ARN set to the OIDC role ARN
+
+name: PRISM AI Metrics
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main, master]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  emit-metrics:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.PRISM_AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Calculate AI-to-merge ratio
+        id: ai-ratio
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.merge_commit_sha }}"
+
+          TOTAL_COMMITS=$(git rev-list --count "${BASE_SHA}..${HEAD_SHA}")
+
+          # Count AI origin per-commit (not per-line) to avoid overcounting
+          AI_GENERATED=0
+          AI_ASSISTED=0
+          HUMAN_ONLY=0
+          for SHA in $(git rev-list "${BASE_SHA}..${HEAD_SHA}"); do
+            MSG=$(git log -1 --format='%B' "${SHA}")
+            if echo "${MSG}" | grep -q '^AI-Origin: ai-generated'; then
+              AI_GENERATED=$((AI_GENERATED + 1))
+            elif echo "${MSG}" | grep -q '^AI-Origin: ai-assisted'; then
+              AI_ASSISTED=$((AI_ASSISTED + 1))
+            elif echo "${MSG}" | grep -q '^AI-Origin: human'; then
+              HUMAN_ONLY=$((HUMAN_ONLY + 1))
+            fi
+          done
+
+          AI_COMMITS=$((AI_GENERATED + AI_ASSISTED))
+          if [[ "${TOTAL_COMMITS}" -gt 0 ]]; then
+            AI_RATIO=$(echo "scale=4; ${AI_COMMITS} / ${TOTAL_COMMITS}" | bc -l | sed 's/^\./0./')
+          else
+            AI_RATIO="0"
+          fi
+
+          # Detect tools used
+          TOOLS_USED=$(git log "${BASE_SHA}..${HEAD_SHA}" --format='%B' | grep '^AI-Origin:' | sort -u | head -5 | tr '\n' ',' | sed 's/,$//')
+
+          echo "total_commits=${TOTAL_COMMITS}" >> "$GITHUB_OUTPUT"
+          echo "ai_commits=${AI_COMMITS}" >> "$GITHUB_OUTPUT"
+          echo "ai_ratio=${AI_RATIO}" >> "$GITHUB_OUTPUT"
+          echo "ai_generated=${AI_GENERATED}" >> "$GITHUB_OUTPUT"
+          echo "ai_assisted=${AI_ASSISTED}" >> "$GITHUB_OUTPUT"
+          echo "human_only=${HUMAN_ONLY}" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate lead time
+        id: lead-time
+        run: |
+          CREATED_AT="${{ github.event.pull_request.created_at }}"
+          MERGED_AT="${{ github.event.pull_request.merged_at }}"
+
+          CREATED_TS=$(date -d "${CREATED_AT}" +%s 2>/dev/null || date -jf "%Y-%m-%dT%H:%M:%SZ" "${CREATED_AT}" +%s)
+          MERGED_TS=$(date -d "${MERGED_AT}" +%s 2>/dev/null || date -jf "%Y-%m-%dT%H:%M:%SZ" "${MERGED_AT}" +%s)
+
+          LEAD_TIME_SECONDS=$((MERGED_TS - CREATED_TS))
+          LEAD_TIME_HOURS=$(echo "scale=2; ${LEAD_TIME_SECONDS} / 3600" | bc -l | sed 's/^\./0./')
+
+          echo "lead_time_seconds=${LEAD_TIME_SECONDS}" >> "$GITHUB_OUTPUT"
+          echo "lead_time_hours=${LEAD_TIME_HOURS}" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate AI acceptance rate
+        id: acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+
+          # Get review decisions for this PR
+          REVIEWS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")]' 2>/dev/null || echo "[]")
+
+          APPROVED=$(echo "${REVIEWS}" | jq '[.[] | select(.state == "APPROVED")] | length')
+          CHANGES_REQUESTED=$(echo "${REVIEWS}" | jq '[.[] | select(.state == "CHANGES_REQUESTED")] | length')
+          TOTAL_REVIEWS=$((APPROVED + CHANGES_REQUESTED))
+
+          if [[ "${TOTAL_REVIEWS}" -gt 0 ]]; then
+            ACCEPTANCE_RATE=$(echo "scale=4; ${APPROVED} / ${TOTAL_REVIEWS}" | bc -l | sed 's/^\./0./')
+          else
+            ACCEPTANCE_RATE="1"  # No reviews = accepted by default
+          fi
+
+          # Only meaningful for AI PRs
+          AI_RATIO="${{ steps.ai-ratio.outputs.ai_ratio }}"
+          if [[ $(echo "${AI_RATIO} > 0" | bc -l) -eq 1 ]]; then
+            AI_ACCEPTANCE_RATE="${ACCEPTANCE_RATE}"
+          else
+            AI_ACCEPTANCE_RATE=""
+          fi
+
+          echo "acceptance_rate=${ACCEPTANCE_RATE}" >> "$GITHUB_OUTPUT"
+          echo "ai_acceptance_rate=${AI_ACCEPTANCE_RATE}" >> "$GITHUB_OUTPUT"
+          echo "approved=${APPROVED}" >> "$GITHUB_OUTPUT"
+          echo "changes_requested=${CHANGES_REQUESTED}" >> "$GITHUB_OUTPUT"
+
+      - name: Emit prism.d1.pr event
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          TEAM_ID="${{ vars.PRISM_TEAM_ID }}"
+          REPO="${{ github.repository }}"
+
+          PR_EVENT=$(jq -n \
+            --arg team_id "${TEAM_ID}" \
+            --arg repo "${REPO}" \
+            --arg timestamp "${TIMESTAMP}" \
+            --argjson ai_ratio "${{ steps.ai-ratio.outputs.ai_ratio }}" \
+            --argjson total_commits "${{ steps.ai-ratio.outputs.total_commits }}" \
+            --argjson ai_commits "${{ steps.ai-ratio.outputs.ai_commits }}" \
+            --argjson ai_generated "${{ steps.ai-ratio.outputs.ai_generated }}" \
+            --argjson ai_assisted "${{ steps.ai-ratio.outputs.ai_assisted }}" \
+            --argjson lead_time_seconds "${{ steps.lead-time.outputs.lead_time_seconds }}" \
+            --argjson lead_time_hours "${{ steps.lead-time.outputs.lead_time_hours }}" \
+            --arg pr_number "${{ github.event.pull_request.number }}" \
+            --arg pr_author "${{ github.event.pull_request.user.login }}" \
+            --argjson approved "${{ steps.acceptance.outputs.approved }}" \
+            --argjson changes_requested "${{ steps.acceptance.outputs.changes_requested }}" \
+            --arg acceptance_rate "${{ steps.acceptance.outputs.acceptance_rate }}" \
+            --arg ai_acceptance_rate "${{ steps.acceptance.outputs.ai_acceptance_rate }}" \
+            '{
+              "team_id": $team_id,
+              "repo": $repo,
+              "timestamp": $timestamp,
+              "prism_level": 2,
+              "metric": {
+                "name": "ai_to_merge_ratio",
+                "value": $ai_ratio,
+                "unit": "ratio"
+              },
+              "ai_context": {
+                "tool": "github-actions",
+                "model": "n/a",
+                "origin": (if $ai_ratio > 0.5 then "ai-assisted" elif $ai_ratio > 0 then "ai-assisted" else "human" end)
+              },
+              "dora": {
+                "lead_time_seconds": $lead_time_seconds,
+                "lead_time_hours": $lead_time_hours
+              },
+              "ai_dora": {
+                "ai_to_merge_ratio": $ai_ratio,
+                "ai_acceptance_rate": (if $ai_acceptance_rate != "" then ($ai_acceptance_rate | tonumber) else null end),
+                "total_commits": $total_commits,
+                "ai_commits": $ai_commits,
+                "ai_generated_commits": $ai_generated,
+                "ai_assisted_commits": $ai_assisted
+              },
+              "pr": {
+                "number": ($pr_number | tonumber),
+                "author": $pr_author,
+                "reviews_approved": $approved,
+                "reviews_changes_requested": $changes_requested
+              }
+            }')
+
+          aws events put-events \
+            --region us-west-2 \
+            --entries "[{
+              \"Source\": \"prism.d1.velocity\",
+              \"DetailType\": \"prism.d1.pr\",
+              \"EventBusName\": \"prism-d1-metrics\",
+              \"Detail\": $(echo "${PR_EVENT}" | jq -c '.' | jq -Rs '.')
+            }]"
+
+      - name: Emit prism.d1.deploy event
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          DEPLOY_EVENT=$(jq -n \
+            --arg team_id "${{ vars.PRISM_TEAM_ID }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg timestamp "${TIMESTAMP}" \
+            --argjson lead_time_hours "${{ steps.lead-time.outputs.lead_time_hours }}" \
+            --arg sha "${{ github.event.pull_request.merge_commit_sha }}" \
+            '{
+              "team_id": $team_id,
+              "repo": $repo,
+              "timestamp": $timestamp,
+              "prism_level": 2,
+              "metric": {
+                "name": "deployment",
+                "value": 1,
+                "unit": "count"
+              },
+              "dora": {
+                "lead_time_hours": $lead_time_hours,
+                "deploy_sha": $sha
+              }
+            }')
+
+          aws events put-events \
+            --region us-west-2 \
+            --entries "[{
+              \"Source\": \"prism.d1.velocity\",
+              \"DetailType\": \"prism.d1.deploy\",
+              \"EventBusName\": \"prism-d1-metrics\",
+              \"Detail\": $(echo "${DEPLOY_EVENT}" | jq -c '.' | jq -Rs '.')
+            }]"
