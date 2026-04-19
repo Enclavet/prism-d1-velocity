@@ -98,55 +98,6 @@ describe('list_tasks', () => {
 });
 
 // ---------------------------------------------------------------------------
-// search_tasks
-// ---------------------------------------------------------------------------
-describe('search_tasks', () => {
-  beforeEach(async () => {
-    await handleToolCall('create_task', {
-      title: 'Fix authentication bug',
-      description: 'Login fails on Safari',
-      tags: ['backend', 'urgent'],
-    });
-    await handleToolCall('create_task', {
-      title: 'Add dashboard charts',
-      description: 'QuickSight integration',
-      tags: ['frontend'],
-    });
-  });
-
-  it('searches by title', async () => {
-    const result = await handleToolCall('search_tasks', { query: 'authentication' });
-    const body = parseResult(result);
-    expect(body.count).toBe(1);
-    expect(body.data[0].title).toMatch(/authentication/i);
-  });
-
-  it('searches by description', async () => {
-    const result = await handleToolCall('search_tasks', { query: 'safari' });
-    const body = parseResult(result);
-    expect(body.count).toBe(1);
-  });
-
-  it('searches by tags', async () => {
-    const result = await handleToolCall('search_tasks', { query: 'frontend' });
-    const body = parseResult(result);
-    expect(body.count).toBe(1);
-    expect(body.data[0].title).toBe('Add dashboard charts');
-  });
-
-  it('returns empty for no matches', async () => {
-    const result = await handleToolCall('search_tasks', { query: 'nonexistent' });
-    const body = parseResult(result);
-    expect(body.count).toBe(0);
-  });
-
-  it('rejects empty query', async () => {
-    const result = await handleToolCall('search_tasks', { query: '' });
-    expect(result.isError).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // update_task
 // ---------------------------------------------------------------------------
 describe('update_task', () => {

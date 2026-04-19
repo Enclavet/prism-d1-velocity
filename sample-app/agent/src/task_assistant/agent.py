@@ -21,7 +21,6 @@ from .tools import (
     create_task,
     update_task,
     delete_task,
-    search_tasks,
     set_api_base,
 )
 
@@ -43,7 +42,7 @@ def create_agent(
     set_api_base(config.task_api_url)
 
     # Build tool list
-    tools = [list_tasks, create_task, update_task, delete_task, search_tasks]
+    tools = [list_tasks, create_task, update_task, delete_task]
 
     # Create agent with Strands SDK
     agent_kwargs = {

@@ -84,21 +84,6 @@ export const toolDefinitions = [
       required: ['id'],
     },
   },
-  {
-    name: 'search_tasks',
-    description:
-      'Search tasks by keyword. Matches against title, description, and tags.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Search keyword (required)',
-        },
-      },
-      required: ['query'],
-    },
-  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -117,8 +102,6 @@ export async function handleToolCall(
       return updateTask(args);
     case 'delete_task':
       return deleteTask(args);
-    case 'search_tasks':
-      return searchTasks(args);
     default:
       return errorResult(`Unknown tool: ${name}`);
   }
@@ -220,23 +203,6 @@ function deleteTask(args: Record<string, unknown>) {
   }
 
   return jsonResult({ data: { deleted: id } });
-}
-
-function searchTasks(args: Record<string, unknown>) {
-  const query = args.query as string;
-  if (!query || typeof query !== 'string' || query.trim() === '') {
-    return errorResult('query is required and must be a non-empty string');
-  }
-
-  const keyword = query.toLowerCase().trim();
-  const tasks = Array.from(taskStore.values()).filter(
-    (t) =>
-      t.title.toLowerCase().includes(keyword) ||
-      t.description.toLowerCase().includes(keyword) ||
-      t.tags.some((tag) => tag.toLowerCase().includes(keyword)),
-  );
-
-  return jsonResult({ data: tasks, count: tasks.length });
 }
 
 // ---------------------------------------------------------------------------

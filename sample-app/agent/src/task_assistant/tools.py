@@ -112,21 +112,4 @@ def delete_task(id: str) -> str:
     return json.dumps(_request("DELETE", f"/tasks/{id}"), indent=2)
 
 
-@tool
-def search_tasks(query: str) -> str:
-    """Search tasks by keyword across title, description, and tags.
 
-    Args:
-        query: The search keyword (required).
-    """
-    result = _request("GET", "/tasks")
-    tasks = result.get("data", [])
-    query_lower = query.lower()
-    matches = [
-        t
-        for t in tasks
-        if query_lower in t.get("title", "").lower()
-        or query_lower in t.get("description", "").lower()
-        or any(query_lower in tag.lower() for tag in t.get("tags", []))
-    ]
-    return json.dumps({"data": matches, "count": len(matches)}, indent=2)

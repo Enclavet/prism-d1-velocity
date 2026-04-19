@@ -1,6 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import healthRouter from './routes/health';
 import tasksRouter from './routes/tasks';
 
 const app = express();
@@ -15,7 +14,6 @@ app.use(express.json());
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
-app.use(healthRouter);
 app.use(tasksRouter);
 
 // ---------------------------------------------------------------------------
