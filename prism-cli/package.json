@@ -1,0 +1,15 @@
+{
+  "name": "prism-cli",
+  "version": "1.0.0",
+  "description": "PRISM D1 Velocity CLI tool",
+  "type": "module",
+  "bin": {
+    "prism-cli": "./bin/prism-cli.js"
+  },
+  "scripts": {
+    "start": "node bin/prism-cli.js"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  }
+}
