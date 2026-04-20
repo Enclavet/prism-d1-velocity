@@ -28,4 +28,4 @@ if [ ! -d "$SCRIPT_DIR/prism-cli/node_modules" ]; then
   (cd "$SCRIPT_DIR/prism-cli" && npm install --silent)
 fi
 
-exec node "$SCRIPT_DIR/prism-cli/bin/prism-cli.js" "$@"
+exec npx --prefix "$SCRIPT_DIR/prism-cli" tsx "$SCRIPT_DIR/prism-cli/bin/prism-cli.ts" "$@"
