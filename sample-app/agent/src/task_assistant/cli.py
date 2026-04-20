@@ -9,6 +9,11 @@ Usage:
 import argparse
 import sys
 
+try:
+    import gnureadline  # noqa: F401 — improves input() in some terminals
+except ImportError:
+    import readline  # noqa: F401 — ensure readline support is active
+
 from .agent import create_agent, run_with_metrics
 from .config import AgentConfig
 
