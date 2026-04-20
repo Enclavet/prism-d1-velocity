@@ -156,16 +156,22 @@ BEDROCK_REQ_FILE=$(mktemp)
 echo "${BEDROCK_REQUEST}" > "${BEDROCK_REQ_FILE}"
 
 BEDROCK_RESP_FILE=$(mktemp)
+BEDROCK_ERR_FILE=$(mktemp)
 aws bedrock-runtime invoke-model \
     --region "${AWS_REGION}" \
     --model-id "${EVAL_MODEL_ID}" \
     --content-type "application/json" \
     --accept "application/json" \
     --body "fileb://${BEDROCK_REQ_FILE}" \
-    "${BEDROCK_RESP_FILE}" 2>/dev/null
+    "${BEDROCK_RESP_FILE}" 2>"${BEDROCK_ERR_FILE}" || {
+        echo "Error: Bedrock invoke-model failed:" >&2
+        cat "${BEDROCK_ERR_FILE}" >&2
+        rm -f "${BEDROCK_REQ_FILE}" "${BEDROCK_RESP_FILE}" "${BEDROCK_ERR_FILE}"
+        exit 1
+    }
 
 BEDROCK_RESPONSE=$(cat "${BEDROCK_RESP_FILE}")
-rm -f "${BEDROCK_REQ_FILE}" "${BEDROCK_RESP_FILE}"
+rm -f "${BEDROCK_REQ_FILE}" "${BEDROCK_RESP_FILE}" "${BEDROCK_ERR_FILE}"
 
 test -n "${BEDROCK_RESPONSE}" || {
     echo "Error: Bedrock invocation failed. Check AWS credentials and model access."
