@@ -28,7 +28,7 @@ def main():
         emit_metrics=not args.no_metrics,
     )
 
-    agent = create_agent(config=config, mock=args.mock)
+    agent = create_agent(config=config, mock=args.mock, verbose=args.verbose)
 
     mode = "mock" if args.mock else "Bedrock"
     print(f"Task Assistant Agent | Mode: {mode} | API: {args.api_url}")
@@ -48,8 +48,12 @@ def main():
             break
 
         try:
-            response = run_with_metrics(agent, prompt, config)
-            print(f"\n{response}\n")
+            if args.verbose:
+                print("\033[2m[Agent] Thinking...\033[0m")
+            run_with_metrics(agent, prompt, config)
+            if args.verbose:
+                print("\033[2m[Agent] Responding to user...\033[0m")
+            print()  # newline after streamed output
         except Exception as exc:
             print(f"\nError: {exc}\n")
 
