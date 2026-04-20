@@ -130,7 +130,7 @@ export default {
         {
           Effect: 'Allow',
           Action: 'events:PutEvents',
-          Resource: `arn:aws:events:us-west-2:${accountId}:event-bus/prism-d1-metrics`,
+          Resource: `arn:aws:events:us-west-2:${accountId}:event-bus/prism-metrics`,
         },
         {
           Effect: 'Allow',
