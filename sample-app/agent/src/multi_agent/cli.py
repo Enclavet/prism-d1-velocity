@@ -9,6 +9,11 @@ Usage:
 import argparse
 import sys
 
+try:
+    import gnureadline  # noqa: F401 — improves input() in some terminals
+except ImportError:
+    import readline  # noqa: F401 — ensure readline support is active
+
 from ..task_assistant.agent import run_with_metrics
 from ..task_assistant.config import AgentConfig
 from .orchestrator import create_orchestrator
