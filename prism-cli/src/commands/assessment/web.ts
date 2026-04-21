@@ -62,7 +62,7 @@ const INTERVIEW_SECTIONS: InterviewSection[] = [
         listenFor: ['AI usage beyond code completion', 'Prompt engineering for design tasks', 'Whether specs feed into AI for implementation', 'Left-shift maturity'],
         rubric: ['AI only for inline code completion', 'Code completion + occasional ChatGPT queries', 'Some engineers use AI for spec drafting', 'AI regularly used for specs and planning', 'AI integrated into design phase with structured prompts', 'AI across full design lifecycle: spec drafts, gap review, implementation plans'] },
       { id: 'q2_4', label: 'AI Attribution and Traceability', max: 5,
-        ask: 'Show me your last 3 merged PRs. Can you tell me which parts were AI-assisted? (Ask to share screen)',
+        ask: 'Look at your last 3 merged PRs. Can you tell which parts were AI-assisted?',
         listenFor: ['Can they identify AI-assisted code at all', 'Commit trailers or metadata', 'PR descriptions mentioning AI', 'Automated tagging'],
         rubric: ['Cannot tell which code is AI-assisted', 'Can guess from memory but no tracking', 'Some PRs mention AI inconsistently', 'Convention exists but not enforced', 'Consistent attribution via trailers, enforced', 'Automated attribution: tooling tags, searchable, auditable'] },
     ],
@@ -92,7 +92,7 @@ const INTERVIEW_SECTIONS: InterviewSection[] = [
     id: 'metrics_visibility', name: 'Metrics & Visibility', maxScore: 15, time: '~10 min',
     questions: [
       { id: 'q4_1', label: 'Executive Visibility', max: 5,
-        ask: 'If your CTO asked right now, "What is AI doing for our engineering velocity?" — what would you show them? (Ask to see it)',
+        ask: 'If your CTO asked right now, "What is AI doing for our engineering velocity?" — what would you show them?',
         listenFor: ['Data vs. anecdotes', 'Dashboard existence and quality', 'Real-time vs. quarterly', 'Whether leadership actually asks'],
         rubric: ['Nothing; would rely on anecdotes', 'License costs and adoption numbers only', 'Could assemble a deck with effort', 'Periodic report or dashboard, monthly/quarterly', 'Real-time dashboard with AI contribution metrics', 'Executive-ready dashboard with ROI, trends, automated reporting'] },
       { id: 'q4_2', label: 'Engineering Metrics with AI Dimensions', max: 5,
@@ -335,7 +335,7 @@ function interviewPage(scan: ScanResultJSON): string {
     }
   }
   const probesHtml = probes.length > 0
-    ? `<div class="card" style="border-left:4px solid #f59e0b"><h2>Scanner-Informed Probes</h2><p class="subtitle" style="margin-bottom:8px">Based on scanner gaps — use these to guide follow-up questions (from pre-interview checklist).</p><ul>${probes.map(p => `<li>${p}</li>`).join('')}</ul></div>`
+    ? `<div class="card" style="border-left:4px solid #f59e0b"><h2>Scanner-Informed Focus Areas</h2><p class="subtitle" style="margin-bottom:8px">Based on scanner gaps — consider these areas carefully during the interview.</p><ul>${probes.map(p => `<li>${p}</li>`).join('')}</ul></div>`
     : '';
 
   let sectionsHtml = '';
@@ -353,17 +353,14 @@ function interviewPage(scan: ScanResultJSON): string {
             <p style="color:#475569;font-size:13px;margin:6px 0;font-style:italic">"${q.ask}"</p>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-            <input type="number" id="${q.id}" name="${q.id}" min="0" max="${q.max}" value="0" required style="width:60px">
+            <select id="${q.id}" name="${q.id}" required style="width:60px"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
             <span class="subtitle">/ ${q.max}</span>
           </div>
         </div>
-        <details style="margin-top:8px">
-          <summary style="cursor:pointer;font-size:12px;color:#7c3aed;font-weight:500">Listening for &amp; Scoring Rubric</summary>
-          <div style="margin-top:8px;font-size:13px">
-            <div style="margin-bottom:8px"><strong style="font-size:12px;color:#64748b">LISTEN FOR:</strong><ul style="margin:4px 0 0 16px;color:#475569">${listenHtml}</ul></div>
+        <div style="margin-top:10px;font-size:13px">
+            <div style="margin-bottom:8px"><strong style="font-size:12px;color:#64748b">WHAT TO CONSIDER:</strong><ul style="margin:4px 0 0 16px;color:#475569">${listenHtml}</ul></div>
             <table style="font-size:12px"><thead><tr><th style="width:30px">Score</th><th>Evidence</th></tr></thead><tbody>${rubricHtml}</tbody></table>
           </div>
-        </details>
       </div>`;
     }
     sectionsHtml += `<div class="card">
@@ -376,15 +373,13 @@ function interviewPage(scan: ScanResultJSON): string {
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Interview — ${scan.repoName}</title><style>${PAGE_STYLE}
-  details summary{list-style:none}details summary::-webkit-details-marker{display:none}
-  details[open] summary{color:#6d28d9}
 </style></head><body><div class="page">
-<h1>SA Interview: ${scan.repoName}</h1>
+<h1>Assessment Interview: ${scan.repoName}</h1>
 <p class="subtitle">Scanner score: ${scan.totalScore}/${scan.maxScore} (${scan.prismLevel.level}) · 20 questions · 60-90 minutes</p>
 
 <div class="card" style="background:linear-gradient(135deg,#1a1a2e,#0f3460);color:#fff;margin-top:16px">
-  <p style="font-size:14px;line-height:1.7;color:#e2e8f0">"Thanks for making time for this. We're going to walk through how your team builds software today, with a focus on how AI tools fit into your workflow. There are no wrong answers — we're trying to understand where you are so we can figure out the most useful next steps."</p>
-  <p class="subtitle" style="color:#94a3b8;margin-top:8px">Tip: When in doubt between two scores, pick the lower one. "Show me" questions are critical — ask to see actual PRs and dashboards.</p>
+  <p style="font-size:14px;line-height:1.7;color:#e2e8f0">This interview covers how your team builds software today, with a focus on how AI tools fit into your workflow. There are no wrong answers — the goal is to understand where you are so we can identify the most useful next steps.</p>
+  <p class="subtitle" style="color:#94a3b8;margin-top:8px">Tip: When in doubt between two scores, pick the lower one. For each question, use the scoring rubric to calibrate your answer.</p>
 </div>
 
 ${probesHtml}
@@ -396,8 +391,8 @@ ${probesHtml}
   <h2>Assessment Info</h2>
   <div class="grid-2">
     <div><label for="customerName">Customer name</label><input type="text" id="customerName" name="customerName" required></div>
-    <div><label for="saName">SA / Interviewer</label><input type="text" id="saName" name="saName" required></div>
-    <div><label for="fundingStage">Funding stage</label><input type="text" id="fundingStage" name="fundingStage" placeholder="Series A"></div>
+    <div><label for="saName">Completed by</label><input type="text" id="saName" name="saName" required></div>
+    <div><label for="fundingStage">Funding stage</label><select id="fundingStage" name="fundingStage"><option value="">Select...</option><option>Pre-Seed</option><option>Seed</option><option>Series A</option><option>Series B</option><option>Series C</option><option>Series D+</option><option>Growth / Late Stage</option><option>Public</option><option>Bootstrapped</option></select></div>
     <div><label for="teamSize">Team size (engineers)</label><input type="number" id="teamSize" name="teamSize" min="1" value="10"></div>
   </div>
 </div>
@@ -476,7 +471,7 @@ function reportPage(scan: ScanResultJSON, interview: Record<string, any>, blende
     <div><span style="color:#94a3b8">Customer</span><br><strong>${customerName}</strong></div>
     <div><span style="color:#94a3b8">Team Size</span><br><strong>${teamSize} engineers</strong></div>
     <div><span style="color:#94a3b8">Funding Stage</span><br><strong>${fundingStage}</strong></div>
-    <div><span style="color:#94a3b8">SA</span><br><strong>${saName}</strong></div>
+    <div><span style="color:#94a3b8">Completed By</span><br><strong>${saName}</strong></div>
     <div><span style="color:#94a3b8">Repository</span><br><strong style="font-family:monospace">${scan.repoName}</strong></div>
     <div><span style="color:#94a3b8">Date</span><br><strong>${scan.scanDate}</strong></div>
   </div>
@@ -527,8 +522,7 @@ ${scan.recommendations.length > 0 ? `<div class="card"><h2>Recommendations</h2><
 </div>
 
 <div style="text-align:center;padding:24px;color:#94a3b8;font-size:13px">
-  PRISM D1 Velocity Assessment Report — ${scan.scanDate}<br>
-  AWS Solutions Architecture · Startups Organization
+  PRISM D1 Velocity Assessment Report — ${scan.scanDate}
 </div>
 </div></body></html>`;
 }
