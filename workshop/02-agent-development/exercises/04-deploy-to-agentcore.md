@@ -111,7 +111,7 @@ The deploy script validates your configuration and shows what would be created:
 ```bash
 cd sample-app/agent
 
-python3 deploy-agentcore.py --dry-run
+bash deploy-agentcore.sh --plan
 ```
 
 Expected output:

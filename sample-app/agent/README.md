@@ -81,7 +81,11 @@ pytest tests/test_tools.py  # Tool tests only
 ## Deploy to AgentCore
 
 ```bash
-python scripts/deploy-agentcore.py --config ../bootstrapper/agent-configs/agentcore-runtime.json
+bash scripts/deploy-agentcore.sh
 ```
 
-See [Module 02 Exercise 4](../../workshop/02-agent-development/exercises/04-deploy-to-agentcore.md) for details.
+Options:
+- `--plan` — preview deployment changes without deploying
+- `--local` — run locally with `agentcore dev`
+- `--destroy` — tear down deployed resources
+- `-v, --verbose` — verbose output

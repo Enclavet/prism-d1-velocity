@@ -20,7 +20,10 @@ install_node_via_nvm() {
   # Install nvm if not present
   if ! command -v nvm &> /dev/null; then
     echo "nvm is not installed. Installing nvm..."
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+    NVM_INSTALL_SCRIPT=$(mktemp)
+    curl -fsSL -o "$NVM_INSTALL_SCRIPT" https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh
+    bash "$NVM_INSTALL_SCRIPT"
+    rm -f "$NVM_INSTALL_SCRIPT"
     export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
     # shellcheck source=/dev/null
     . "$NVM_DIR/nvm.sh"

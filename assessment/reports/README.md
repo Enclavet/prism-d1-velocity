@@ -44,6 +44,8 @@ fs.writeFileSync('report.html', html);
 reports/
   README.md                                  # This file
   report-generator.ts                        # Generator logic
+  generate-html.py                           # HTML report generation (pure Python)
+  generate-pdfs.sh                           # PDF conversion via Chrome headless
   templates/
     assessment-report.html                   # HTML template
     assessment-report.md                     # Markdown template

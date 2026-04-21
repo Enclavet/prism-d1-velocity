@@ -341,5 +341,5 @@ cd assessment/reports && npx ts-node -e "
 "
 
 # 5. Generate PDF
-python3 generate-pdfs.py
+bash generate-pdfs.sh
 ```

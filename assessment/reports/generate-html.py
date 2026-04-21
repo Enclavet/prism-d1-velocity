@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Generate PDF assessment reports from sample JSON data."""
+"""Generate HTML assessment reports from sample JSON data.
+
+This module contains only pure Python — no subprocess calls.
+HTML files are written to sample-reports/pdf/ for optional PDF conversion
+by generate-pdfs.sh.
+"""
 import json
 import os
-import shlex
-import shutil
-import subprocess
 import math
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(SCRIPT_DIR, "sample-reports")
 OUTPUT_DIR = os.path.join(SAMPLES_DIR, "pdf")
-
 def status_color(score, max_score):
     pct = (score / max_score * 100) if max_score > 0 else 0
     if pct >= 60:
@@ -512,19 +513,9 @@ def main():
         ("sample-l3.5-startup.json", "vectrix-ai-l3.5-assessment"),
     ]
 
-    chrome = shutil.which("google-chrome") or shutil.which("chromium-browser") or shutil.which("chromium")
-    if not chrome:
-        macos_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        if os.path.isfile(macos_chrome):
-            chrome = macos_chrome
-        else:
-            print("Error: Chrome/Chromium not found on PATH. Skipping PDF generation.")
-            chrome = None
-
     for json_file, base_name in samples:
         json_path = os.path.join(SAMPLES_DIR, json_file)
         html_path = os.path.join(OUTPUT_DIR, f"{base_name}.html")
-        pdf_path = os.path.join(OUTPUT_DIR, f"{base_name}.pdf")
 
         print(f"Processing {json_file}...")
 
@@ -537,32 +528,7 @@ def main():
             f.write(html)
         print(f"  HTML: {html_path}")
 
-        # Convert to PDF using Chrome headless
-        if not chrome:
-            print("  PDF:  skipped (no Chrome found)")
-            continue
-
-        cmd = [
-            chrome,
-            "--headless",
-            "--disable-gpu",
-            "--no-sandbox",
-            f"--print-to-pdf={pdf_path}",
-            "--print-to-pdf-no-header",
-            "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=5000",
-            f"file://{html_path}",
-        ]
-        result = subprocess.run(
-            [shlex.quote(arg) for arg in cmd], capture_output=True, text=True, timeout=30,
-        )
-        if os.path.exists(pdf_path):
-            size_kb = os.path.getsize(pdf_path) / 1024
-            print(f"  PDF:  {pdf_path} ({size_kb:.0f} KB)")
-        else:
-            print(f"  PDF generation failed: {result.stderr[:200]}")
-
-    print("\nDone!")
+    print("\nHTML generation complete.")
 
 
 if __name__ == "__main__":
