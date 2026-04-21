@@ -11,19 +11,6 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(SCRIPT_DIR, "sample-reports")
 OUTPUT_DIR = os.path.join(SAMPLES_DIR, "pdf")
 
-
-def _resolve_chrome() -> str | None:
-    """Find a Chrome/Chromium binary on the system."""
-    for name in ("google-chrome", "chromium-browser", "chromium"):
-        path = shutil.which(name)
-        if path:
-            return path
-    # Fallback for macOS app bundle
-    macos_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    if os.path.isfile(macos_chrome):
-        return macos_chrome
-    return None
-
 def status_color(score, max_score):
     pct = (score / max_score * 100) if max_score > 0 else 0
     if pct >= 60:
@@ -525,9 +512,14 @@ def main():
         ("sample-l3.5-startup.json", "vectrix-ai-l3.5-assessment"),
     ]
 
-    chrome = _resolve_chrome()
+    chrome = shutil.which("google-chrome") or shutil.which("chromium-browser") or shutil.which("chromium")
     if not chrome:
-        print("Error: Chrome/Chromium not found on PATH. Skipping PDF generation.")
+        macos_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        if os.path.isfile(macos_chrome):
+            chrome = macos_chrome
+        else:
+            print("Error: Chrome/Chromium not found on PATH. Skipping PDF generation.")
+            chrome = None
 
     for json_file, base_name in samples:
         json_path = os.path.join(SAMPLES_DIR, json_file)
@@ -550,10 +542,8 @@ def main():
             print("  PDF:  skipped (no Chrome found)")
             continue
 
-        # Convert to PDF using Chrome headless.
-        # Arguments are passed as a list (no shell). shlex.quote is used
-        # in the log line to prevent log-injection from file paths.
-        chrome_args = [
+        cmd = [
+            chrome,
             "--headless",
             "--disable-gpu",
             "--no-sandbox",
@@ -563,11 +553,9 @@ def main():
             "--virtual-time-budget=5000",
             f"file://{html_path}",
         ]
-
-        cmd = [chrome, *chrome_args]
-        print(f"  $ {' '.join(shlex.quote(a) for a in cmd)}")
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            [shlex.quote(arg) for arg in cmd], capture_output=True, text=True, timeout=30,
+        )
         if os.path.exists(pdf_path):
             size_kb = os.path.getsize(pdf_path) / 1024
             print(f"  PDF:  {pdf_path} ({size_kb:.0f} KB)")

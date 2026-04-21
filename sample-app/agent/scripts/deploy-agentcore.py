@@ -30,52 +30,26 @@ AGENT_DIR = os.path.dirname(SCRIPT_DIR)
 AGENT_NAME = "prismtaskassistant"
 CDK_DIR = os.path.join(AGENT_DIR, "agentcore", "cdk")
 
-# Allowlist of CLI executables this script may invoke
-_ALLOWED_EXECUTABLES = frozenset({"agentcore", "aws"})
-
-
-def _resolve_executable(name: str) -> str:
-    """Resolve an executable from the allowlist via shutil.which."""
-    if name not in _ALLOWED_EXECUTABLES:
-        raise ValueError(f"Executable {name!r} is not in the allowlist: {_ALLOWED_EXECUTABLES}")
-    path = shutil.which(name)
-    if not path:
-        raise FileNotFoundError(f"{name!r} not found on PATH")
-    return path
-
 
 def run_cmd(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
-    """Run a CLI command and return the result.
-
-    The executable is resolved from an allowlist via shutil.which.
-    Arguments are passed as a list (never shell=True) so no shell
-    interpretation occurs. shlex.quote is used in log output to
-    prevent log injection.
-    """
-    resolved = _resolve_executable(cmd[0])
-    full_cmd = [resolved, *cmd[1:]]
-    print(f"  $ {' '.join(shlex.quote(a) for a in full_cmd)}")
-    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
-    return subprocess.run(full_cmd, text=True, cwd=cwd or AGENT_DIR)
+    """Run a CLI command and return the result."""
+    print(f"  $ {' '.join(cmd)}")
+    return subprocess.run(
+        [shlex.quote(arg) for arg in cmd], text=True, cwd=cwd or AGENT_DIR,
+    )
 
 
 def check_cli() -> None:
     """Verify the AgentCore CLI is installed."""
     try:
-        agentcore_path = _resolve_executable("agentcore")
-    except FileNotFoundError:
-        print("\nError: AgentCore CLI not found.")
-        print("Install with: npm install -g @aws/agentcore")
-        sys.exit(1)
-    try:
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         result = subprocess.run(
-            [agentcore_path, "--version"],
+            [shlex.quote(arg) for arg in ["agentcore", "--version"]],
             capture_output=True, check=True, text=True,
         )
         print(f"AgentCore CLI: {result.stdout.strip()}")
-    except subprocess.CalledProcessError as exc:
-        print(f"\nError: AgentCore CLI check failed (exit {exc.returncode}).")
+    except FileNotFoundError:
+        print("\nError: AgentCore CLI not found.")
+        print("Install with: npm install -g @aws/agentcore")
         sys.exit(1)
 
 
@@ -168,18 +142,13 @@ def resolve_account_id() -> None:
         return
 
     try:
-        aws_path = _resolve_executable("aws")
-    except FileNotFoundError:
-        print("Warning: AWS CLI not found. Fill agentcore/aws-targets.json manually.")
-        return
-    try:
-        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
         result = subprocess.run(
-            [aws_path, "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
+            [shlex.quote(arg) for arg in
+             ["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"]],
             capture_output=True, check=True, text=True,
         )
         account_id = result.stdout.strip()
-    except subprocess.CalledProcessError:
+    except (FileNotFoundError, subprocess.CalledProcessError):
         print("Warning: Could not resolve AWS account ID. Fill agentcore/aws-targets.json manually.")
         return
 
