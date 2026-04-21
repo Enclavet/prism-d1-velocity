@@ -158,7 +158,7 @@ function scanPage(): string {
 <h1>PRISM D1 Velocity Assessment</h1>
 <p class="subtitle">AI-Assisted Development Lifecycle Maturity Scanner</p>
 <div class="card" style="margin-top:20px">
-  <h2>Step 1: Scan Repository</h2>
+  <h2>Option A: Scan a Repository</h2>
   <form id="scanForm" method="POST" action="/scan">
     <label for="repoPath">Local repository path</label>
     <input type="text" id="repoPath" name="repoPath" placeholder="/home/user/my-project" required>
@@ -166,10 +166,34 @@ function scanPage(): string {
     <span id="spinner" class="spinner hidden"></span>
   </form>
 </div>
+<div class="card">
+  <h2>Option B: Import Previous Scan Results</h2>
+  <p class="subtitle" style="margin-bottom:12px">Upload a JSON file from a previous scan to skip straight to the interview.</p>
+  <form id="importForm" method="POST" action="/import" enctype="multipart/form-data">
+    <input type="file" id="importFile" accept=".json" style="margin-bottom:12px" required>
+    <input type="hidden" id="importData" name="importData">
+    <button type="submit">Import &amp; Start Interview →</button>
+  </form>
+</div>
 </div>
 <script>
-document.getElementById('scanForm').addEventListener('submit', function(e) {
+document.getElementById('scanForm').addEventListener('submit', function() {
   document.getElementById('spinner').classList.remove('hidden');
+});
+document.getElementById('importForm').addEventListener('submit', function(e) {
+  var fileInput = document.getElementById('importFile');
+  if (!fileInput.files || !fileInput.files[0]) { e.preventDefault(); alert('Select a JSON file first.'); return; }
+  e.preventDefault();
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var data = JSON.parse(ev.target.result);
+      if (!data.repoName || !data.categories) { alert('Invalid scan JSON. Expected a PRISM scanner output file.'); return; }
+      document.getElementById('importData').value = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+      e.target.submit();
+    } catch(err) { alert('Could not parse JSON: ' + err.message); }
+  };
+  reader.readAsText(fileInput.files[0]);
 });
 </script>
 </body></html>`;
@@ -448,6 +472,21 @@ function startServer(port: number) {
           'Content-Disposition': `attachment; filename="${scan.repoName}-scan.json"`,
         });
         return res.end(JSON.stringify(scan, null, 2));
+      }
+
+      if (req.method === 'POST' && url === '/import') {
+        const form = await parseFormBody(req);
+        const scanJson = form.importData;
+        if (!scanJson) return send(res, 400, 'text/html', '<h1>No scan data received</h1>');
+        try {
+          const scan = JSON.parse(Buffer.from(scanJson, 'base64').toString());
+          if (!scan.repoName || !scan.categories) {
+            return send(res, 400, 'text/html', '<h1>Invalid scan JSON — missing repoName or categories</h1>');
+          }
+          return send(res, 200, 'text/html', interviewPage(scan));
+        } catch {
+          return send(res, 400, 'text/html', '<h1>Could not parse imported scan data</h1>');
+        }
       }
 
       if (req.method === 'POST' && url === '/interview') {
