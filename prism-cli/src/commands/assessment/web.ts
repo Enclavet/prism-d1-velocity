@@ -346,18 +346,18 @@ function interviewPage(scan: ScanResultJSON): string {
       const rubricHtml = q.rubric.map((r, i) => `<tr><td style="text-align:center;font-weight:600;width:30px">${i}</td><td>${r}</td></tr>`).join('');
 
       questionsHtml += `
-      <div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px">
+      <div data-qid="${q.id}" data-qlabel="${q.label}" style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px;transition:all .2s">
         <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
           <div style="flex:1">
             <label for="${q.id}" style="font-size:15px;font-weight:600">${q.label}</label>
-            <p style="color:#475569;font-size:13px;margin:6px 0;font-style:italic">"${q.ask}"</p>
+            <p class="q-ask" style="color:#475569;font-size:13px;margin:6px 0;font-style:italic">"${q.ask}"</p>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
             <select id="${q.id}" name="${q.id}" required style="width:60px"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
             <span class="subtitle">/ ${q.max}</span>
           </div>
         </div>
-        <div style="margin-top:10px;font-size:13px">
+        <div class="q-detail" style="margin-top:10px;font-size:13px">
             <div style="margin-bottom:8px"><strong style="font-size:12px;color:#64748b">WHAT TO CONSIDER:</strong><ul style="margin:4px 0 0 16px;color:#475569">${listenHtml}</ul></div>
             <table style="font-size:12px"><thead><tr><th style="width:30px">Score</th><th>Evidence</th></tr></thead><tbody>${rubricHtml}</tbody></table>
           </div>
@@ -373,6 +373,10 @@ function interviewPage(scan: ScanResultJSON): string {
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>Interview — ${scan.repoName}</title><style>${PAGE_STYLE}
+  [data-qid].answered{border-color:#22c55e;background:#f0fdf4;padding:10px 16px}
+  [data-qid].answered .q-detail{display:none}
+  [data-qid].answered .q-ask{display:none}
+  [data-qid].answered label{color:#16a34a}
 </style></head><body><div class="page">
 <h1>Assessment Interview: ${scan.repoName}</h1>
 <p class="subtitle">Scanner score: ${scan.totalScore}/${scan.maxScore} (${scan.prismLevel.level}) · 20 questions · 60-90 minutes</p>
@@ -408,9 +412,57 @@ ${sectionsHtml}
   <div class="checkbox-row"><input type="checkbox" id="appropriateTeamSize" name="appropriateTeamSize"><label for="appropriateTeamSize">Team size appropriate (20-200 engineers)</label></div>
 </div>
 
-<div class="card"><button type="submit">Generate Report →</button></div>
+<div class="card"><button type="submit" id="submitBtn">Generate Report →</button>
+  <div id="validationMsg" style="color:#ef4444;font-size:14px;margin-top:8px" class="hidden"></div>
+</div>
 </form>
-</div></body></html>`;
+</div>
+<script>
+// Question IDs for validation
+var qIds = [${INTERVIEW_SECTIONS.flatMap(s => s.questions.map(q => `'${q.id}'`)).join(',')}];
+var infoIds = ['customerName','saName'];
+
+// Collapse answered questions
+document.querySelectorAll('select[id^="q"]').forEach(function(sel) {
+  sel.addEventListener('change', function() {
+    var card = this.closest('[data-qid]');
+    if (!card) return;
+    var val = parseInt(this.value);
+    if (val > 0) {
+      card.classList.add('answered');
+    } else {
+      card.classList.remove('answered');
+    }
+  });
+});
+
+// Validation on submit
+document.getElementById('submitBtn').closest('form').addEventListener('submit', function(e) {
+  var missing = [];
+  infoIds.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el || !el.value.trim()) missing.push(el ? (el.previousElementSibling ? el.previousElementSibling.textContent : id) : id);
+  });
+  qIds.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var val = parseInt(el.value);
+    if (isNaN(val) || val < 0 || val > 5) {
+      var label = el.closest('[data-qid]');
+      var name = label ? label.getAttribute('data-qlabel') : id;
+      missing.push(name);
+    }
+  });
+  if (missing.length > 0) {
+    e.preventDefault();
+    var msg = document.getElementById('validationMsg');
+    msg.innerHTML = 'Please complete: ' + missing.map(function(m) { return '<strong>' + m + '</strong>'; }).join(', ');
+    msg.classList.remove('hidden');
+    msg.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+});
+</script>
+</body></html>`;
 }
 
 function reportPage(scan: ScanResultJSON, interview: Record<string, any>, blended: BlendedResult): string {
