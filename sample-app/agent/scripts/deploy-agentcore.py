@@ -19,7 +19,6 @@ Usage:
 import argparse
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -34,9 +33,6 @@ CDK_DIR = os.path.join(AGENT_DIR, "agentcore", "cdk")
 # Allowlist of CLI executables this script may invoke
 _ALLOWED_EXECUTABLES = frozenset({"agentcore", "aws"})
 
-# Arguments must be safe CLI tokens: alphanumeric, hyphens, dots, slashes, equals
-_SAFE_ARG_RE = re.compile(r"^[a-zA-Z0-9_./:@=\-]+$")
-
 
 def _resolve_executable(name: str) -> str:
     """Resolve an executable from the allowlist via shutil.which."""
@@ -48,25 +44,19 @@ def _resolve_executable(name: str) -> str:
     return path
 
 
-def _validate_args(args: list[str]) -> list[str]:
-    """Validate that every argument matches the safe-token pattern."""
-    for arg in args:
-        if not _SAFE_ARG_RE.match(arg):
-            raise ValueError(f"Unsafe argument rejected: {shlex.quote(arg)}")
-    return args
-
-
 def run_cmd(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
     """Run a CLI command and return the result.
 
-    The executable is resolved from an allowlist and all arguments are
-    validated against a safe-token regex before execution.
+    The executable is resolved from an allowlist via shutil.which.
+    Arguments are passed as a list (never shell=True) so no shell
+    interpretation occurs. shlex.quote is used in log output to
+    prevent log injection.
     """
     resolved = _resolve_executable(cmd[0])
-    safe_args = _validate_args(cmd[1:])
-    full_cmd = [resolved, *safe_args]
-    print(f"  $ {' '.join(full_cmd)}")
-    return subprocess.run(full_cmd, text=True, cwd=cwd or AGENT_DIR)  # nosemgrep: dangerous-subprocess-use-audit
+    full_cmd = [resolved, *cmd[1:]]
+    print(f"  $ {' '.join(shlex.quote(a) for a in full_cmd)}")
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+    return subprocess.run(full_cmd, text=True, cwd=cwd or AGENT_DIR)
 
 
 def check_cli() -> None:
@@ -78,7 +68,8 @@ def check_cli() -> None:
         print("Install with: npm install -g @aws/agentcore")
         sys.exit(1)
     try:
-        result = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        result = subprocess.run(
             [agentcore_path, "--version"],
             capture_output=True, check=True, text=True,
         )
@@ -182,7 +173,8 @@ def resolve_account_id() -> None:
         print("Warning: AWS CLI not found. Fill agentcore/aws-targets.json manually.")
         return
     try:
-        result = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        result = subprocess.run(
             [aws_path, "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
             capture_output=True, check=True, text=True,
         )

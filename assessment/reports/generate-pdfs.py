@@ -2,7 +2,7 @@
 """Generate PDF assessment reports from sample JSON data."""
 import json
 import os
-import re
+import shlex
 import shutil
 import subprocess
 import math
@@ -10,9 +10,6 @@ import math
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(SCRIPT_DIR, "sample-reports")
 OUTPUT_DIR = os.path.join(SAMPLES_DIR, "pdf")
-
-# Chrome arguments must be safe CLI tokens (alphanumeric, hyphens, dots, slashes, equals, colons)
-_SAFE_CHROME_ARG_RE = re.compile(r"^[a-zA-Z0-9_./:=\-]+$")
 
 
 def _resolve_chrome() -> str | None:
@@ -26,14 +23,6 @@ def _resolve_chrome() -> str | None:
     if os.path.isfile(macos_chrome):
         return macos_chrome
     return None
-
-
-def _validate_chrome_args(args: list[str]) -> list[str]:
-    """Validate Chrome CLI arguments against a safe-token pattern."""
-    for arg in args:
-        if not _SAFE_CHROME_ARG_RE.match(arg):
-            raise ValueError(f"Unsafe Chrome argument rejected: {arg!r}")
-    return args
 
 def status_color(score, max_score):
     pct = (score / max_score * 100) if max_score > 0 else 0
@@ -561,7 +550,9 @@ def main():
             print("  PDF:  skipped (no Chrome found)")
             continue
 
-        # Validate that generated paths are safe for CLI use
+        # Convert to PDF using Chrome headless.
+        # Arguments are passed as a list (no shell). shlex.quote is used
+        # in the log line to prevent log-injection from file paths.
         chrome_args = [
             "--headless",
             "--disable-gpu",
@@ -572,10 +563,11 @@ def main():
             "--virtual-time-budget=5000",
             f"file://{html_path}",
         ]
-        _validate_chrome_args(chrome_args)
 
         cmd = [chrome, *chrome_args]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosemgrep: dangerous-subprocess-use-audit
+        print(f"  $ {' '.join(shlex.quote(a) for a in cmd)}")
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if os.path.exists(pdf_path):
             size_kb = os.path.getsize(pdf_path) / 1024
             print(f"  PDF:  {pdf_path} ({size_kb:.0f} KB)")
