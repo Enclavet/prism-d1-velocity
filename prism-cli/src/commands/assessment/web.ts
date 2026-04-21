@@ -353,7 +353,7 @@ function interviewPage(scan: ScanResultJSON): string {
             <p class="q-ask" style="color:#475569;font-size:13px;margin:6px 0;font-style:italic">"${q.ask}"</p>
           </div>
           <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-            <select id="${q.id}" name="${q.id}" required style="width:60px"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
+            <select id="${q.id}" name="${q.id}" required style="width:60px"><option value="" selected>—</option><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select>
             <span class="subtitle">/ ${q.max}</span>
           </div>
         </div>
@@ -427,8 +427,7 @@ document.querySelectorAll('select[id^="q"]').forEach(function(sel) {
   sel.addEventListener('change', function() {
     var card = this.closest('[data-qid]');
     if (!card) return;
-    var val = parseInt(this.value);
-    if (val > 0) {
+    if (this.value !== '') {
       card.classList.add('answered');
     } else {
       card.classList.remove('answered');
@@ -446,10 +445,10 @@ document.getElementById('submitBtn').closest('form').addEventListener('submit', 
   qIds.forEach(function(id) {
     var el = document.getElementById(id);
     if (!el) return;
-    var val = parseInt(el.value);
-    if (isNaN(val) || val < 0 || val > 5) {
-      var label = el.closest('[data-qid]');
-      var name = label ? label.getAttribute('data-qlabel') : id;
+    var val = el.value;
+    if (val === '' || val === null || val === undefined) {
+      var card = el.closest('[data-qid]');
+      var name = card ? card.getAttribute('data-qlabel') : id;
       missing.push(name);
     }
   });
@@ -658,6 +657,27 @@ function startServer(port: number) {
       if (req.method === 'POST' && url === '/report') {
         const form = await parseFormBody(req);
         const scan: ScanResultJSON = JSON.parse(Buffer.from(form.scanData, 'base64').toString());
+
+        // Server-side validation: check all question scores are filled
+        const missing: string[] = [];
+        if (!form.customerName?.trim()) missing.push('Customer name');
+        if (!form.saName?.trim()) missing.push('Completed by');
+        for (const sec of INTERVIEW_SECTIONS) {
+          for (const q of sec.questions) {
+            const val = form[q.id];
+            if (val === undefined || val === null || val === '') {
+              missing.push(q.label);
+            }
+          }
+        }
+        if (missing.length > 0) {
+          return send(res, 400, 'text/html', `<!DOCTYPE html><html><head><style>${PAGE_STYLE}</style></head><body><div class="page"><div class="card">
+            <h2>Missing Required Fields</h2>
+            <p>Please go back and complete the following:</p>
+            <ul>${missing.map(m => `<li><strong>${m}</strong></li>`).join('')}</ul>
+            <button onclick="history.back()">← Go Back</button>
+          </div></div></body></html>`);
+        }
 
         // Sum interview scores
         let interviewTotal = 0;

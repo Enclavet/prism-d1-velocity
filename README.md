@@ -60,9 +60,7 @@ npx cdk deploy --all
 
 ### Assess a Customer
 
-Run the [PRISM Assessment](assessment/README.md) to determine maturity level and onboarding track. See the [full methodology guide](assessment/ASSESSMENT-GUIDE.md) for scanner logic, interview rubrics, and scoring formulas.
-
-#### Web Assessment Tool
+#### Web Assessment Tool (Recommended)
 
 The prism-cli includes a local web interface for running the full assessment flow — scan, interview, and report generation — in a browser.
 
@@ -85,6 +83,10 @@ The web tool supports two workflows:
 3. Generate the HTML report directly in the browser
 
 The interview form includes the full question bank, scoring rubrics, and scanner-informed focus areas. Reports can be printed or saved as PDF from the browser.
+
+#### Manual Assessment
+
+For a CLI-only or fully manual workflow, run the [PRISM Assessment](assessment/README.md) to determine maturity level and onboarding track. See the [full methodology guide](assessment/ASSESSMENT-GUIDE.md) for scanner logic, interview rubrics, and scoring formulas.
 
 ### Run the Workshop
 
