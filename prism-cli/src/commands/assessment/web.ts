@@ -2,10 +2,11 @@ import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { execSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { runScan } from '../../scanner/index.js';
+import type { ScanResult } from '../../scanner/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = resolve(__dirname, '..', '..', '..', '..');
 
 // ---------------------------------------------------------------------------
 // Interview section definitions (mirrors scoring-sheet.md)
@@ -71,41 +72,9 @@ const INTERVIEW_SECTIONS: InterviewSection[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Scanner runner — shells out to the existing scanner CLI
+// Scanner runner — uses the built-in scanner module directly
 // ---------------------------------------------------------------------------
-interface ScanCategoryResult {
-  category: string;
-  maxPoints: number;
-  earnedPoints: number;
-  evidence: { signal: string; found: boolean; points: number; detail: string }[];
-}
-
-interface ScanResultJSON {
-  repoPath: string;
-  repoName: string;
-  scanDate: string;
-  totalScore: number;
-  maxScore: number;
-  prismLevel: { level: string; label: string; description: string };
-  categories: ScanCategoryResult[];
-  strengths: string[];
-  gaps: string[];
-  recommendations: string[];
-}
-
-function runScanner(repoPath: string): ScanResultJSON {
-  const scannerDir = resolve(PROJECT_ROOT, 'assessment', 'scanner');
-  const indexTs = resolve(scannerDir, 'src', 'index.ts');
-  if (!existsSync(indexTs)) {
-    throw new Error(`Scanner not found at ${indexTs}`);
-  }
-  // Run scanner in JSON mode via tsx
-  const out = execSync(
-    `npx tsx ${JSON.stringify(indexTs)} --repo ${JSON.stringify(repoPath)} --output json`,
-    { cwd: scannerDir, encoding: 'utf-8', timeout: 60_000 },
-  );
-  return JSON.parse(out);
-}
+type ScanResultJSON = ScanResult;
 
 // ---------------------------------------------------------------------------
 // Scoring (inline — mirrors assessment/scoring/scoring-model.ts)
@@ -467,7 +436,7 @@ function startServer(port: number) {
         const repoPath = form.repoPath?.trim();
         if (!repoPath) return send(res, 400, 'text/html', '<h1>Repository path is required</h1>');
         if (!existsSync(repoPath)) return send(res, 400, 'text/html', `<h1>Path not found: ${repoPath}</h1>`);
-        const scan = runScanner(repoPath);
+        const scan = await runScan(repoPath, { output: 'json' });
         return send(res, 200, 'text/html', scanResultsPage(scan));
       }
 
