@@ -19,6 +19,8 @@ Usage:
 import argparse
 import json
 import os
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -29,27 +31,56 @@ AGENT_DIR = os.path.dirname(SCRIPT_DIR)
 AGENT_NAME = "prismtaskassistant"
 CDK_DIR = os.path.join(AGENT_DIR, "agentcore", "cdk")
 
+# Allowlist of CLI executables this script may invoke
+_ALLOWED_EXECUTABLES = frozenset({"agentcore", "aws"})
+
+# Arguments must be safe CLI tokens: alphanumeric, hyphens, dots, slashes, equals
+_SAFE_ARG_RE = re.compile(r"^[a-zA-Z0-9_./:@=\-]+$")
+
+
+def _resolve_executable(name: str) -> str:
+    """Resolve an executable from the allowlist via shutil.which."""
+    if name not in _ALLOWED_EXECUTABLES:
+        raise ValueError(f"Executable {name!r} is not in the allowlist: {_ALLOWED_EXECUTABLES}")
+    path = shutil.which(name)
+    if not path:
+        raise FileNotFoundError(f"{name!r} not found on PATH")
+    return path
+
+
+def _validate_args(args: list[str]) -> list[str]:
+    """Validate that every argument matches the safe-token pattern."""
+    for arg in args:
+        if not _SAFE_ARG_RE.match(arg):
+            raise ValueError(f"Unsafe argument rejected: {shlex.quote(arg)}")
+    return args
+
 
 def run_cmd(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
     """Run a CLI command and return the result.
 
-    Uses a fixed argument list (never shell=True) to prevent shell injection.
+    The executable is resolved from an allowlist and all arguments are
+    validated against a safe-token regex before execution.
     """
-    print(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, text=True, cwd=cwd or AGENT_DIR, shell=False)  # noqa: S603
+    resolved = _resolve_executable(cmd[0])
+    safe_args = _validate_args(cmd[1:])
+    full_cmd = [resolved, *safe_args]
+    print(f"  $ {' '.join(full_cmd)}")
+    return subprocess.run(full_cmd, text=True, cwd=cwd or AGENT_DIR)  # nosemgrep: dangerous-subprocess-use-audit
 
 
 def check_cli() -> None:
     """Verify the AgentCore CLI is installed."""
-    agentcore_path = shutil.which("agentcore")
-    if not agentcore_path:
+    try:
+        agentcore_path = _resolve_executable("agentcore")
+    except FileNotFoundError:
         print("\nError: AgentCore CLI not found.")
         print("Install with: npm install -g @aws/agentcore")
         sys.exit(1)
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
             [agentcore_path, "--version"],
-            capture_output=True, check=True, text=True, shell=False,  # noqa: S603
+            capture_output=True, check=True, text=True,
         )
         print(f"AgentCore CLI: {result.stdout.strip()}")
     except subprocess.CalledProcessError as exc:
@@ -145,14 +176,15 @@ def resolve_account_id() -> None:
     if target.get("account"):
         return
 
-    aws_path = shutil.which("aws")
-    if not aws_path:
+    try:
+        aws_path = _resolve_executable("aws")
+    except FileNotFoundError:
         print("Warning: AWS CLI not found. Fill agentcore/aws-targets.json manually.")
         return
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
             [aws_path, "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
-            capture_output=True, check=True, text=True, shell=False,  # noqa: S603
+            capture_output=True, check=True, text=True,
         )
         account_id = result.stdout.strip()
     except subprocess.CalledProcessError:

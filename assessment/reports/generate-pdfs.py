@@ -2,12 +2,38 @@
 """Generate PDF assessment reports from sample JSON data."""
 import json
 import os
+import re
+import shutil
 import subprocess
 import math
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(SCRIPT_DIR, "sample-reports")
 OUTPUT_DIR = os.path.join(SAMPLES_DIR, "pdf")
+
+# Chrome arguments must be safe CLI tokens (alphanumeric, hyphens, dots, slashes, equals, colons)
+_SAFE_CHROME_ARG_RE = re.compile(r"^[a-zA-Z0-9_./:=\-]+$")
+
+
+def _resolve_chrome() -> str | None:
+    """Find a Chrome/Chromium binary on the system."""
+    for name in ("google-chrome", "chromium-browser", "chromium"):
+        path = shutil.which(name)
+        if path:
+            return path
+    # Fallback for macOS app bundle
+    macos_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if os.path.isfile(macos_chrome):
+        return macos_chrome
+    return None
+
+
+def _validate_chrome_args(args: list[str]) -> list[str]:
+    """Validate Chrome CLI arguments against a safe-token pattern."""
+    for arg in args:
+        if not _SAFE_CHROME_ARG_RE.match(arg):
+            raise ValueError(f"Unsafe Chrome argument rejected: {arg!r}")
+    return args
 
 def status_color(score, max_score):
     pct = (score / max_score * 100) if max_score > 0 else 0
@@ -510,15 +536,9 @@ def main():
         ("sample-l3.5-startup.json", "vectrix-ai-l3.5-assessment"),
     ]
 
-    chrome = shutil.which("google-chrome") or shutil.which("chromium-browser") or shutil.which("chromium")
+    chrome = _resolve_chrome()
     if not chrome:
-        # Fallback for macOS
-        macos_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        if os.path.isfile(macos_chrome):
-            chrome = macos_chrome
-        else:
-            print("Error: Chrome/Chromium not found on PATH. Skipping PDF generation.")
-            chrome = None
+        print("Error: Chrome/Chromium not found on PATH. Skipping PDF generation.")
 
     for json_file, base_name in samples:
         json_path = os.path.join(SAMPLES_DIR, json_file)
@@ -541,8 +561,8 @@ def main():
             print("  PDF:  skipped (no Chrome found)")
             continue
 
-        cmd = [
-            chrome,
+        # Validate that generated paths are safe for CLI use
+        chrome_args = [
             "--headless",
             "--disable-gpu",
             "--no-sandbox",
@@ -552,7 +572,10 @@ def main():
             "--virtual-time-budget=5000",
             f"file://{html_path}",
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, shell=False)  # noqa: S603
+        _validate_chrome_args(chrome_args)
+
+        cmd = [chrome, *chrome_args]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosemgrep: dangerous-subprocess-use-audit
         if os.path.exists(pdf_path):
             size_kb = os.path.getsize(pdf_path) / 1024
             print(f"  PDF:  {pdf_path} ({size_kb:.0f} KB)")
