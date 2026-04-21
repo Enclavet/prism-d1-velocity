@@ -9,64 +9,134 @@ import type { ScanResult } from '../../scanner/types.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
-// Interview section definitions (mirrors scoring-sheet.md)
+// Interview section definitions — enriched from interview-guide.md
 // ---------------------------------------------------------------------------
+interface InterviewQuestion {
+  id: string;
+  label: string;
+  max: number;
+  ask: string;
+  listenFor: string[];
+  rubric: string[];  // index = score (0-5)
+}
+
 interface InterviewSection {
   id: string;
   name: string;
   maxScore: number;
-  questions: { id: string; label: string; max: number }[];
+  time: string;
+  questions: InterviewQuestion[];
 }
 
 const INTERVIEW_SECTIONS: InterviewSection[] = [
   {
-    id: 'ai_tooling_landscape', name: 'AI Tooling Landscape', maxScore: 15,
+    id: 'ai_tooling_landscape', name: 'AI Tooling Landscape', maxScore: 15, time: '~10 min',
     questions: [
-      { id: 'q1_1', label: 'AI tool usage overview', max: 5 },
-      { id: 'q1_2', label: 'Tool adoption process', max: 5 },
-      { id: 'q1_3', label: 'Usage measurement', max: 5 },
+      { id: 'q1_1', label: 'AI Tool Usage Overview', max: 5,
+        ask: 'Walk me through how your engineers use AI tools today — from IDE to deployment. What tools are in play, and how consistently are they used?',
+        listenFor: ['Specific tool names vs. vague answers', 'Standardization vs. individual choice', 'Whether tools span the full lifecycle', 'Shared configuration (team-wide settings, prompt libraries)'],
+        rubric: ['No AI tools in use', 'A few engineers use AI tools ad hoc', 'Multiple tools but no standardization', 'Standardized primary tool, some shared config', 'Standardized toolset covering multiple phases', 'Fully standardized and managed AI toolchain with usage tracking'] },
+      { id: 'q1_2', label: 'Tool Adoption Process', max: 5,
+        ask: 'How do you decide which AI tools to adopt? Is there a process, or does it happen organically?',
+        listenFor: ['Governance vs. grassroots adoption', 'Evaluation criteria (security, cost, effectiveness)', 'Budget ownership', 'Speed of adoption'],
+        rubric: ['No process; engineers install whatever', 'Informal process, no framework', 'Some evaluation criteria but inconsistent', 'Defined process with security review, but slow', 'Streamlined evaluation with clear criteria', 'Formal but fast governance with ongoing measurement'] },
+      { id: 'q1_3', label: 'Usage Measurement', max: 5,
+        ask: 'What percentage of your engineers use AI tools weekly? How do you know that number?',
+        listenFor: ['Actual data vs. guessing', 'Telemetry or license dashboards', 'Usage depth tracking', 'Awareness of adoption gaps'],
+        rubric: ['"I don\'t know" or clearly guessing', 'Rough guess based on anecdotes', 'Knows license count but not usage', 'Some usage data but not actively monitored', 'Actively tracks with team breakdowns', 'Real-time dashboards with usage depth and trends'] },
     ],
   },
   {
-    id: 'dev_workflow_specs', name: 'Development Workflow & Specs', maxScore: 20,
+    id: 'dev_workflow_specs', name: 'Development Workflow & Specs', maxScore: 20, time: '~15 min',
     questions: [
-      { id: 'q2_1', label: 'Feature development flow', max: 5 },
-      { id: 'q2_2', label: 'Spec quality and structure', max: 5 },
-      { id: 'q2_3', label: 'AI in the design phase', max: 5 },
-      { id: 'q2_4', label: 'AI attribution and traceability', max: 5 },
+      { id: 'q2_1', label: 'Feature Development Flow', max: 5,
+        ask: 'When a new feature comes in, what does the journey from idea to first PR look like? Walk me through a recent example.',
+        listenFor: ['Defined process or varies by person', 'Where AI enters the workflow', 'Handoff points and bottlenecks', 'Whether process is documented'],
+        rubric: ['No consistent process', 'Loose process, AI only during coding', 'Some features get specs inconsistently', 'Defined workflow with spec phase for major features', 'Consistent spec-first workflow with AI in coding and testing', 'Fully spec-driven with AI at every phase'] },
+      { id: 'q2_2', label: 'Spec Quality and Structure', max: 5,
+        ask: 'Do engineers write specs or design docs before coding? How structured are they?',
+        listenFor: ['Spec existence and consistency', 'Template usage and enforcement', 'Quality (vague vs. structured with ACs)', 'Whether specs live in the repo'],
+        rubric: ['No specs; code from tickets directly', 'Occasional design docs, no format', 'Specs exist but quality varies, no template', 'Template used for most features', 'Structured specs with enforcement and review', 'Rigorous spec process with ACs, constraints, AI-consumable format'] },
+      { id: 'q2_3', label: 'AI in the Design Phase', max: 5,
+        ask: 'How does AI participate in the design phase vs. just the coding phase? Is AI involved before the first line of code is written?',
+        listenFor: ['AI usage beyond code completion', 'Prompt engineering for design tasks', 'Whether specs feed into AI for implementation', 'Left-shift maturity'],
+        rubric: ['AI only for inline code completion', 'Code completion + occasional ChatGPT queries', 'Some engineers use AI for spec drafting', 'AI regularly used for specs and planning', 'AI integrated into design phase with structured prompts', 'AI across full design lifecycle: spec drafts, gap review, implementation plans'] },
+      { id: 'q2_4', label: 'AI Attribution and Traceability', max: 5,
+        ask: 'Show me your last 3 merged PRs. Can you tell me which parts were AI-assisted? (Ask to share screen)',
+        listenFor: ['Can they identify AI-assisted code at all', 'Commit trailers or metadata', 'PR descriptions mentioning AI', 'Automated tagging'],
+        rubric: ['Cannot tell which code is AI-assisted', 'Can guess from memory but no tracking', 'Some PRs mention AI inconsistently', 'Convention exists but not enforced', 'Consistent attribution via trailers, enforced', 'Automated attribution: tooling tags, searchable, auditable'] },
     ],
   },
   {
-    id: 'cicd_quality', name: 'CI/CD & Quality', maxScore: 20,
+    id: 'cicd_quality', name: 'CI/CD & Quality', maxScore: 20, time: '~15 min',
     questions: [
-      { id: 'q3_1', label: 'AI validation in CI/CD', max: 5 },
-      { id: 'q3_2', label: 'AI bug tracking', max: 5 },
-      { id: 'q3_3', label: 'AI code quality measurement', max: 5 },
-      { id: 'q3_4', label: 'Deployment metrics and AI impact', max: 5 },
+      { id: 'q3_1', label: 'AI Validation in CI/CD', max: 5,
+        ask: 'Walk me through your CI/CD pipeline. Where does AI-generated code get validated differently from human-written code?',
+        listenFor: ['AI-specific validation steps', 'Eval gates', 'Bedrock Evaluations or similar', 'Security scanning for AI risks'],
+        rubric: ['Standard CI only, no AI-specific steps', 'Awareness but no action', 'Extra review for AI PRs but no automation', 'Some automated checks for AI code', 'Dedicated AI validation: eval gates, security scanning', 'Comprehensive: eval gates, Bedrock Evaluations, rollback triggers, feedback loops'] },
+      { id: 'q3_2', label: 'AI Bug Tracking', max: 5,
+        ask: 'Have you ever had an AI-generated bug reach production? What happened, and what did you learn?',
+        listenFor: ['Honesty and self-awareness', 'Whether they track AI-origin bugs separately', 'Post-mortem process', 'Process improvements from incidents'],
+        rubric: ['Don\'t track AI origin for bugs or denial', 'Aware of at least one bug, no tracking', 'Can describe incidents, response was ad hoc', 'AI bugs discussed in retros, some changes', 'AI bugs tagged in tracker, post-mortems address AI', 'Systematic tracking with defect attribution and feedback loops'] },
+      { id: 'q3_3', label: 'AI Code Quality Measurement', max: 5,
+        ask: 'How do you measure the quality of AI-generated code vs. human-written code? Is there a difference?',
+        listenFor: ['Whether they measure quality at all', 'Defect rate comparison', 'Acceptance rate tracking', 'Quality metrics with AI dimension'],
+        rubric: ['No systematic quality measurement', 'General metrics but no AI dimension', 'Anecdotal awareness, no measurement', 'Some metrics with AI awareness', 'Explicit AI vs. human quality comparison', 'Comprehensive: defect rates, review times, acceptance rates, dashboards'] },
+      { id: 'q3_4', label: 'Deployment Metrics and AI Impact', max: 5,
+        ask: 'What\'s your deployment frequency and lead time? How has AI affected these numbers?',
+        listenFor: ['DORA metrics awareness', 'Actual measurement', 'AI impact attribution', 'Before/after data'],
+        rubric: ['Don\'t track deployment metrics', 'Rough awareness, no formal tracking', 'Track frequency/lead time but no AI analysis', 'Track DORA, anecdotal AI impact', 'DORA with trend analysis and before/after data', 'Full DORA with AI-attributed impact analysis'] },
     ],
   },
   {
-    id: 'metrics_visibility', name: 'Metrics & Visibility', maxScore: 15,
+    id: 'metrics_visibility', name: 'Metrics & Visibility', maxScore: 15, time: '~10 min',
     questions: [
-      { id: 'q4_1', label: 'Executive visibility', max: 5 },
-      { id: 'q4_2', label: 'Engineering metrics with AI dimensions', max: 5 },
-      { id: 'q4_3', label: 'AI ROI reporting', max: 5 },
+      { id: 'q4_1', label: 'Executive Visibility', max: 5,
+        ask: 'If your CTO asked right now, "What is AI doing for our engineering velocity?" — what would you show them? (Ask to see it)',
+        listenFor: ['Data vs. anecdotes', 'Dashboard existence and quality', 'Real-time vs. quarterly', 'Whether leadership actually asks'],
+        rubric: ['Nothing; would rely on anecdotes', 'License costs and adoption numbers only', 'Could assemble a deck with effort', 'Periodic report or dashboard, monthly/quarterly', 'Real-time dashboard with AI contribution metrics', 'Executive-ready dashboard with ROI, trends, automated reporting'] },
+      { id: 'q4_2', label: 'Engineering Metrics with AI Dimensions', max: 5,
+        ask: 'What engineering metrics do you currently track? Which ones include an AI dimension?',
+        listenFor: ['Baseline metrics maturity', 'AI dimensions on existing metrics', 'DORA, cycle time, throughput', 'Whether metrics drive decisions'],
+        rubric: ['Minimal or no engineering metrics', 'Basic metrics, no AI dimension', 'Standard metrics, no AI dimension', 'Good metrics + 1-2 AI-specific', 'Comprehensive with AI dimensions', 'Enhanced DORA with full AI dimensions, actively driving decisions'] },
+      { id: 'q4_3', label: 'AI ROI Reporting', max: 5,
+        ask: 'How do you report AI ROI to leadership? What\'s the cadence and what does it include?',
+        listenFor: ['Whether ROI is reported at all', 'Quantitative vs. qualitative', 'Cadence and audience', 'Cost + benefit included'],
+        rubric: ['No AI ROI reporting', 'Occasional informal updates', 'Periodic updates with some data', 'Quarterly with quantified metrics', 'Regular with quantified ROI and exec audience', 'Structured readouts with full ROI model, trends, forecasts'] },
     ],
   },
   {
-    id: 'governance_security', name: 'Governance & Security', maxScore: 15,
+    id: 'governance_security', name: 'Governance & Security', maxScore: 15, time: '~10 min',
     questions: [
-      { id: 'q5_1', label: 'AI guardrails', max: 5 },
-      { id: 'q5_2', label: 'AI access and permissions', max: 5 },
-      { id: 'q5_3', label: 'AI incident response', max: 5 },
+      { id: 'q5_1', label: 'AI Guardrails', max: 5,
+        ask: 'What guardrails do you have around AI-generated code and AI agents? How do you limit what AI can do autonomously?',
+        listenFor: ['Whether guardrails exist at all', 'Specificity (vague vs. concrete rules)', 'Autonomy tiers', 'Agent-specific controls'],
+        rubric: ['No guardrails; AI has developer access', 'Informal guidance only', 'AI PRs require review but no formal policy', 'Documented guardrails with basic autonomy rules', 'Formal framework: autonomy tiers enforced by tooling', 'Comprehensive: tiers, sandboxing, restricted zones, audit trail'] },
+      { id: 'q5_2', label: 'AI Access and Permissions', max: 5,
+        ask: 'How do you handle AI access to sensitive data, credentials, or production systems? Does AI get the same access as the developer?',
+        listenFor: ['Scoped permissions vs. inherited access', 'IAM for AI agents', 'Credential management', 'Audit trails'],
+        rubric: ['AI has same access as developer, no audit', 'Awareness but no action', 'Basic controls (no prod access)', 'Scoped permissions, credential isolation, basic audit', 'Comprehensive: scoped IAM, audit trails, trust boundaries', 'Full governance: least-privilege, audit attribution, regular reviews'] },
+      { id: 'q5_3', label: 'AI Incident Response', max: 5,
+        ask: 'Do you have an AI-specific incident response process? If an AI agent causes a production issue, what happens?',
+        listenFor: ['AI-specific failure mode awareness', 'Runbooks or escalation paths', 'Post-mortem process for AI causes', 'Automated detection'],
+        rubric: ['No AI-specific incident response', 'Awareness but no specific process', 'Some ad hoc handling, not documented', 'AI considerations added to existing runbooks', 'Dedicated AI runbooks and escalation paths', 'Comprehensive: runbooks, automated detection, drills, feedback to guardrails'] },
     ],
   },
   {
-    id: 'org_culture', name: 'Organization & Culture', maxScore: 15,
+    id: 'org_culture', name: 'Organization & Culture', maxScore: 15, time: '~10 min',
     questions: [
-      { id: 'q6_1', label: 'AI ownership and sponsorship', max: 5 },
-      { id: 'q6_2', label: 'AI onboarding', max: 5 },
-      { id: 'q6_3', label: 'Blockers and self-awareness', max: 5 },
+      { id: 'q6_1', label: 'AI Ownership and Sponsorship', max: 5,
+        ask: 'Who owns AI engineering transformation in your org? Is there a dedicated person, team, or budget?',
+        listenFor: ['Named individual or team', 'Executive sponsorship', 'Dedicated budget', 'Strategic intent vs. organic'],
+        rubric: ['Nobody owns it; grassroots only', 'Informal champion with no authority', 'Leadership supportive but no dedicated owner', 'Named owner with partial responsibility and budget', 'Dedicated owner with mandate, budget, exec backing', 'Named owner + team, C-level sponsorship, on company roadmap with OKRs'] },
+      { id: 'q6_2', label: 'AI Onboarding', max: 5,
+        ask: 'How do new engineers get onboarded to your AI toolchain? What does their first week look like with respect to AI tools?',
+        listenFor: ['Whether onboarding includes AI', 'Documentation and guides', 'Time-to-productivity', 'Ongoing training'],
+        rubric: ['AI not part of onboarding', 'Mentioned informally, no structured setup', 'Tools set up but no usage guidance', 'Structured: tools installed, usage guide, conventions', 'Comprehensive: codebase-specific tips, mentoring, first-week tasks', 'Full program: prompt libraries, benchmarks, ongoing training, feedback loop'] },
+      { id: 'q6_3', label: 'Blockers and Self-Awareness', max: 5,
+        ask: 'What\'s blocking you from getting more value from AI in engineering? If you could fix one thing tomorrow, what would it be?',
+        listenFor: ['Self-awareness and honesty', 'Specificity of blockers', 'Organizational vs. technical vs. cultural', 'Willingness to change'],
+        rubric: ['"Nothing, we\'re fine" or "AI isn\'t useful"', 'Vague blockers with no specifics', 'Specific blockers but no action taken', 'Specific blockers with some efforts underway', 'Clear gaps with prioritized action plan', 'Deep self-awareness with root cause analysis and evidence of iterating'] },
     ],
   },
 ];
@@ -252,18 +322,52 @@ ${recsHtml ? `<div class="card"><h2>Recommendations</h2><ul>${recsHtml}</ul></di
 function interviewPage(scan: ScanResultJSON): string {
   const scanB64 = Buffer.from(JSON.stringify(scan)).toString('base64');
 
+  // Build scanner-informed probes (from pre-interview-checklist.md)
+  const probes: string[] = [];
+  for (const cat of scan.categories) {
+    const pct = cat.maxPoints > 0 ? (cat.earnedPoints / cat.maxPoints) * 100 : 0;
+    if (pct < 30) {
+      if (cat.category.includes('Commit')) probes.push(`Scanner: low AI commit attribution (${cat.earnedPoints}/${cat.maxPoints}). Probe: "How do you track which code is AI-assisted?"`);
+      else if (cat.category.includes('CI')) probes.push(`Scanner: no AI eval gates in CI (${cat.earnedPoints}/${cat.maxPoints}). Probe: "Your CI doesn't have AI-specific validation. Is that intentional?"`);
+      else if (cat.category.includes('Spec')) probes.push(`Scanner: no structured specs detected (${cat.earnedPoints}/${cat.maxPoints}). Probe: "Where do design decisions live?"`);
+      else if (cat.category.includes('Test')) probes.push(`Scanner: low test coverage (${cat.earnedPoints}/${cat.maxPoints}). Probe: "How does AI factor into your testing strategy?"`);
+      else if (cat.category.includes('Observ')) probes.push(`Scanner: no AI observability (${cat.earnedPoints}/${cat.maxPoints}). Probe: "How do you measure AI's impact on velocity?"`);
+    }
+  }
+  const probesHtml = probes.length > 0
+    ? `<div class="card" style="border-left:4px solid #f59e0b"><h2>Scanner-Informed Probes</h2><p class="subtitle" style="margin-bottom:8px">Based on scanner gaps — use these to guide follow-up questions (from pre-interview checklist).</p><ul>${probes.map(p => `<li>${p}</li>`).join('')}</ul></div>`
+    : '';
+
   let sectionsHtml = '';
   for (const sec of INTERVIEW_SECTIONS) {
     let questionsHtml = '';
     for (const q of sec.questions) {
-      questionsHtml += `<div class="section-q">
-        <label for="${q.id}">${q.label}</label>
-        <input type="number" id="${q.id}" name="${q.id}" min="0" max="${q.max}" value="0" required>
-        <span class="subtitle">/ ${q.max}</span>
+      const listenHtml = q.listenFor.map(l => `<li>${l}</li>`).join('');
+      const rubricHtml = q.rubric.map((r, i) => `<tr><td style="text-align:center;font-weight:600;width:30px">${i}</td><td>${r}</td></tr>`).join('');
+
+      questionsHtml += `
+      <div style="border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:start;gap:12px">
+          <div style="flex:1">
+            <label for="${q.id}" style="font-size:15px;font-weight:600">${q.label}</label>
+            <p style="color:#475569;font-size:13px;margin:6px 0;font-style:italic">"${q.ask}"</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            <input type="number" id="${q.id}" name="${q.id}" min="0" max="${q.max}" value="0" required style="width:60px">
+            <span class="subtitle">/ ${q.max}</span>
+          </div>
+        </div>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:12px;color:#7c3aed;font-weight:500">Listening for &amp; Scoring Rubric</summary>
+          <div style="margin-top:8px;font-size:13px">
+            <div style="margin-bottom:8px"><strong style="font-size:12px;color:#64748b">LISTEN FOR:</strong><ul style="margin:4px 0 0 16px;color:#475569">${listenHtml}</ul></div>
+            <table style="font-size:12px"><thead><tr><th style="width:30px">Score</th><th>Evidence</th></tr></thead><tbody>${rubricHtml}</tbody></table>
+          </div>
+        </details>
       </div>`;
     }
     sectionsHtml += `<div class="card">
-      <h2>${sec.name} <span class="subtitle">(max ${sec.maxScore})</span></h2>
+      <h2>${sec.name} <span class="subtitle">(max ${sec.maxScore}, ${sec.time})</span></h2>
       ${questionsHtml}
       <label>Key findings / notes</label>
       <textarea class="notes" name="${sec.id}_notes" placeholder="Observations for this section..."></textarea>
@@ -271,9 +375,19 @@ function interviewPage(scan: ScanResultJSON): string {
   }
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Interview — ${scan.repoName}</title><style>${PAGE_STYLE}</style></head><body><div class="page">
+<title>Interview — ${scan.repoName}</title><style>${PAGE_STYLE}
+  details summary{list-style:none}details summary::-webkit-details-marker{display:none}
+  details[open] summary{color:#6d28d9}
+</style></head><body><div class="page">
 <h1>SA Interview: ${scan.repoName}</h1>
-<p class="subtitle">Scanner score: ${scan.totalScore}/${scan.maxScore} (${scan.prismLevel.level})</p>
+<p class="subtitle">Scanner score: ${scan.totalScore}/${scan.maxScore} (${scan.prismLevel.level}) · 20 questions · 60-90 minutes</p>
+
+<div class="card" style="background:linear-gradient(135deg,#1a1a2e,#0f3460);color:#fff;margin-top:16px">
+  <p style="font-size:14px;line-height:1.7;color:#e2e8f0">"Thanks for making time for this. We're going to walk through how your team builds software today, with a focus on how AI tools fit into your workflow. There are no wrong answers — we're trying to understand where you are so we can figure out the most useful next steps."</p>
+  <p class="subtitle" style="color:#94a3b8;margin-top:8px">Tip: When in doubt between two scores, pick the lower one. "Show me" questions are critical — ask to see actual PRs and dashboards.</p>
+</div>
+
+${probesHtml}
 
 <form method="POST" action="/report">
 <input type="hidden" name="scanData" value="${scanB64}">
