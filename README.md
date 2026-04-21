@@ -112,18 +112,6 @@ echo 'PRISM_TEAM_ID=your-team-name' >> .env
 | **Eval Gate Pass Rate** | Bedrock Evaluations in CI | >= 80% | >= 95% |
 | **AI Test Coverage Delta** | Coverage tool + AI origin tag | > 15% | > 40% |
 
-## Workshop Modules
-
-| # | Module | Duration | Key Outcome |
-|---|--------|----------|-------------|
-| 00 | [Prerequisites](workshop/00-prerequisites/) | 30 min | Environment ready, Bedrock access confirmed |
-| 01 | [AI-SDLC Foundations](workshop/01-ai-sdlc-foundations/) | 45 min | Claude Code configured, first AI-assisted commit |
-| 02 | [Agent Development](workshop/02-agent-development/) | 70 min | Strands agent + MCP server + multi-agent orchestration |
-| 03 | [Spec-Driven Development](workshop/03-spec-driven-development/) | 45 min | Kiro spec → Claude Code implementation flow |
-| 04 | [Instrumenting AI Metrics](workshop/04-instrumenting-ai-metrics/) | 45 min | Git hooks + CI emitting enhanced DORA events |
-| 05 | [Eval Gates in CI/CD](workshop/05-eval-gates-cicd/) | 45 min | Bedrock Evaluation gate blocking bad merges |
-| 06 | [Dashboards & Visibility](workshop/06-dashboards-visibility/) | 30 min | Executive + team dashboards live |
-
 ## Architecture
 
 ```
