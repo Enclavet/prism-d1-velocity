@@ -24,12 +24,12 @@ jobs:
 
     steps:
       - name: Checkout with full history
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@b47578312673ae6fa5b5096b330d9fbac3d116df # v4.2.1
         with:
           role-to-assume: ${{ secrets.PRISM_METRICS_ROLE_ARN }}
           aws-region: us-west-2
@@ -41,17 +41,22 @@ jobs:
         env:
           EVENT_BUS_NAME: ${{ vars.PRISM_EVENT_BUS_NAME || 'prism-metrics' }}
           REPO_NAME: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            BEFORE="${{ github.event.before }}"
-            AFTER="${{ github.event.after }}"
+          if [ "$EVENT_NAME" = "push" ]; then
+            BEFORE="$EVENT_BEFORE"
+            AFTER="$EVENT_AFTER"
             if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
               COMMITS=$(git rev-list "$AFTER" --max-count=20)
             else
               COMMITS=$(git rev-list "$BEFORE".."$AFTER")
             fi
           else
-            COMMITS=$(git rev-list "${{ github.event.pull_request.base.sha }}"..HEAD)
+            COMMITS=$(git rev-list "$PR_BASE_SHA"..HEAD)
           fi
 
           ENTRIES="[]"
@@ -74,7 +79,7 @@ jobs:
               --arg date "$COMMIT_DATE" \
               --arg subject "$SUBJECT" \
               --arg repo "$REPO_NAME" \
-              --arg branch "${{ github.ref_name }}" \
+              --arg branch "$BRANCH_NAME" \
               --arg ai_origin "$AI_ORIGIN" \
               --arg ai_model "$AI_MODEL" \
               --arg ai_confidence "$AI_CONFIDENCE" \
@@ -106,24 +111,29 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           EVENT_BUS_NAME: ${{ vars.PRISM_EVENT_BUS_NAME || 'prism-metrics' }}
+          PR_CREATED: ${{ github.event.pull_request.created_at }}
+          PR_MERGED: ${{ github.event.pull_request.merged_at }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO_NAME: ${{ github.repository }}
         run: |
-          PR_CREATED="${{ github.event.pull_request.created_at }}"
-          PR_MERGED="${{ github.event.pull_request.merged_at }}"
           CREATED_TS=$(date -d "$PR_CREATED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$PR_CREATED" +%s)
           MERGED_TS=$(date -d "$PR_MERGED" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$PR_MERGED" +%s)
           LEAD_TIME_SECONDS=$((MERGED_TS - CREATED_TS))
-          TOTAL_COMMITS=$(git rev-list "${{ github.event.pull_request.base.sha }}"..HEAD | wc -l | tr -d '[:space:]')
-          AI_COMMITS=$(git log "${{ github.event.pull_request.base.sha }}"..HEAD --format='%(trailers:key=AI-Origin,valueonly)' | grep -c "claude-code" || true)
+          TOTAL_COMMITS=$(git rev-list "$PR_BASE_SHA"..HEAD | wc -l | tr -d '[:space:]')
+          AI_COMMITS=$(git log "$PR_BASE_SHA"..HEAD --format='%(trailers:key=AI-Origin,valueonly)' | grep -c "claude-code" || true)
           AI_RATIO=0
           if [ "$TOTAL_COMMITS" -gt 0 ]; then
             AI_RATIO=$(echo "scale=4; $AI_COMMITS / $TOTAL_COMMITS" | bc)
           fi
 
           DETAIL=$(jq -n \
-            --argjson pr "${{ github.event.pull_request.number }}" \
-            --arg title "${{ github.event.pull_request.title }}" \
-            --arg author "${{ github.event.pull_request.user.login }}" \
-            --arg repo "${{ github.repository }}" \
+            --argjson pr "$PR_NUMBER" \
+            --arg title "$PR_TITLE" \
+            --arg author "$PR_AUTHOR" \
+            --arg repo "$REPO_NAME" \
             --argjson lead_time "$LEAD_TIME_SECONDS" \
             --argjson total "$TOTAL_COMMITS" \
             --argjson ai "$AI_COMMITS" \

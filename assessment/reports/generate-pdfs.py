@@ -510,7 +510,15 @@ def main():
         ("sample-l3.5-startup.json", "vectrix-ai-l3.5-assessment"),
     ]
 
-    chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    chrome = shutil.which("google-chrome") or shutil.which("chromium-browser") or shutil.which("chromium")
+    if not chrome:
+        # Fallback for macOS
+        macos_chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        if os.path.isfile(macos_chrome):
+            chrome = macos_chrome
+        else:
+            print("Error: Chrome/Chromium not found on PATH. Skipping PDF generation.")
+            chrome = None
 
     for json_file, base_name in samples:
         json_path = os.path.join(SAMPLES_DIR, json_file)
@@ -529,6 +537,10 @@ def main():
         print(f"  HTML: {html_path}")
 
         # Convert to PDF using Chrome headless
+        if not chrome:
+            print("  PDF:  skipped (no Chrome found)")
+            continue
+
         cmd = [
             chrome,
             "--headless",
@@ -540,7 +552,7 @@ def main():
             "--virtual-time-budget=5000",
             f"file://{html_path}",
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, shell=False)  # noqa: S603
         if os.path.exists(pdf_path):
             size_kb = os.path.getsize(pdf_path) / 1024
             print(f"  PDF:  {pdf_path} ({size_kb:.0f} KB)")

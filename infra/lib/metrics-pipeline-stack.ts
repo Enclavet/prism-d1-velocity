@@ -5,8 +5,10 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as path from 'path';
 import { Construct } from 'constructs';
+import { NagSuppressions } from 'cdk-nag';
 
 export class MetricsPipelineStack extends cdk.Stack {
   public readonly eventBus: events.EventBus;
@@ -24,7 +26,7 @@ export class MetricsPipelineStack extends cdk.Stack {
     });
 
     // -------------------------------------------------------
-    // DynamoDB events table (replaces Timestream)
+    // DynamoDB events table
     // -------------------------------------------------------
     this.eventsTable = new dynamodb.Table(this, 'EventsTable', {
       tableName: 'prism-d1-events',
@@ -34,6 +36,7 @@ export class MetricsPipelineStack extends cdk.Stack {
       pointInTimeRecovery: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       timeToLiveAttribute: 'ttl',
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
     });
 
     this.eventsTable.addGlobalSecondaryIndex({
@@ -53,6 +56,25 @@ export class MetricsPipelineStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecovery: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+    });
+
+    // -------------------------------------------------------
+    // Dead-letter queue for Lambda failures
+    // -------------------------------------------------------
+    const processorDlq = new sqs.Queue(this, 'MetricsProcessorDLQ', {
+      queueName: 'prism-d1-metrics-processor-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+      enforceSSL: true,
+    });
+
+    // -------------------------------------------------------
+    // Dead-letter queue for EventBridge rule delivery failures
+    // -------------------------------------------------------
+    const eventRuleDlq = new sqs.Queue(this, 'EventRuleDLQ', {
+      queueName: 'prism-d1-event-rule-dlq',
+      retentionPeriod: cdk.Duration.days(14),
+      enforceSSL: true,
     });
 
     // -------------------------------------------------------
@@ -60,26 +82,25 @@ export class MetricsPipelineStack extends cdk.Stack {
     // -------------------------------------------------------
     const metricsProcessor = new lambda.Function(this, 'MetricsProcessor', {
       functionName: 'prism-d1-metrics-processor',
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'metrics-processor.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, 'lambda'), {
         bundling: {
-          image: lambda.Runtime.NODEJS_20_X.bundlingImage,
+          image: lambda.Runtime.NODEJS_24_X.bundlingImage,
           command: [
             'bash', '-c',
             [
               'npm init -y > /dev/null 2>&1',
               'npm install --save @aws-sdk/client-dynamodb @aws-sdk/client-cloudwatch esbuild > /dev/null 2>&1',
-              'npx esbuild metrics-processor.ts --bundle --platform=node --target=node20 --outfile=/asset-output/metrics-processor.js --external:@aws-sdk/*',
+              'npx esbuild metrics-processor.ts --bundle --platform=node --target=node22 --outfile=/asset-output/metrics-processor.js --external:@aws-sdk/*',
             ].join(' && '),
           ],
           local: {
             tryBundle(outputDir: string): boolean {
-              // Local bundling via esbuild if available
               try {
                 const { execSync } = require('child_process');
                 execSync(
-                  `npx esbuild ${path.join(__dirname, 'lambda', 'metrics-processor.ts')} --bundle --platform=node --target=node20 --outfile=${path.join(outputDir, 'metrics-processor.js')} --external:@aws-sdk/*`,
+                  `npx esbuild ${path.join(__dirname, 'lambda', 'metrics-processor.ts')} --bundle --platform=node --target=node22 --outfile=${path.join(outputDir, 'metrics-processor.js')} --external:@aws-sdk/*`,
                   { stdio: 'pipe' },
                 );
                 return true;
@@ -92,6 +113,8 @@ export class MetricsPipelineStack extends cdk.Stack {
       }),
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      reservedConcurrentExecutions: 10,
+      deadLetterQueue: processorDlq,
       environment: {
         EVENTS_TABLE: this.eventsTable.tableName,
         METADATA_TABLE: this.metadataTable.tableName,
@@ -120,6 +143,49 @@ export class MetricsPipelineStack extends cdk.Stack {
       }),
     );
 
+    // cdk-nag: cloudwatch:PutMetricData does not support resource-level permissions
+    NagSuppressions.addResourceSuppressions(
+      metricsProcessor,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason:
+            'cloudwatch:PutMetricData does not support resource-level permissions. ' +
+            'Access is scoped via a cloudwatch:namespace condition key.',
+        },
+        {
+          id: 'AwsSolutions-IAM4',
+          reason:
+            'AWSLambdaBasicExecutionRole is required for Lambda CloudWatch Logs access. ' +
+            'This is the standard CDK-managed execution role.',
+          appliesTo: [
+            'Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
+          ],
+        },
+      ],
+      true,
+    );
+
+    // cdk-nag: LogRetention custom resource uses CDK-managed IAM role with wildcards
+    NagSuppressions.addStackSuppressions(this, [
+      {
+        id: 'AwsSolutions-IAM4',
+        reason:
+          'LogRetention custom resource Lambda uses AWSLambdaBasicExecutionRole, ' +
+          'managed by CDK internals.',
+        appliesTo: [
+          'Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
+        ],
+      },
+      {
+        id: 'AwsSolutions-IAM5',
+        reason:
+          'LogRetention custom resource requires wildcard permissions to manage log groups. ' +
+          'This is a CDK-internal construct.',
+        appliesTo: ['Resource::*'],
+      },
+    ]);
+
     // -------------------------------------------------------
     // EventBridge rules — one per detail-type category
     // -------------------------------------------------------
@@ -143,10 +209,28 @@ export class MetricsPipelineStack extends cdk.Stack {
           source: ['prism.d1.velocity'],
           detailType: [detailType],
         },
-        targets: [new targets.LambdaFunction(metricsProcessor)],
+        targets: [
+          new targets.LambdaFunction(metricsProcessor, {
+            deadLetterQueue: eventRuleDlq,
+            retryAttempts: 2,
+          }),
+        ],
         description: `Routes ${detailType} events to the metrics processor`,
       });
     }
+
+    // -------------------------------------------------------
+    // cdk-nag: SQS DLQ queues don't themselves need DLQs
+    // -------------------------------------------------------
+    NagSuppressions.addResourceSuppressions(
+      [processorDlq, eventRuleDlq],
+      [
+        {
+          id: 'AwsSolutions-SQS3',
+          reason: 'These are dead-letter queues themselves; a DLQ on a DLQ is not needed.',
+        },
+      ],
+    );
 
     // -------------------------------------------------------
     // Outputs

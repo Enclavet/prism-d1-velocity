@@ -31,22 +31,29 @@ CDK_DIR = os.path.join(AGENT_DIR, "agentcore", "cdk")
 
 
 def run_cmd(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
-    """Run a CLI command and return the result."""
+    """Run a CLI command and return the result.
+
+    Uses a fixed argument list (never shell=True) to prevent shell injection.
+    """
     print(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, text=True, cwd=cwd or AGENT_DIR)
+    return subprocess.run(cmd, text=True, cwd=cwd or AGENT_DIR, shell=False)  # noqa: S603
 
 
 def check_cli() -> None:
     """Verify the AgentCore CLI is installed."""
-    try:
-        result = subprocess.run(
-            ["agentcore", "--version"],
-            capture_output=True, check=True, text=True,
-        )
-        print(f"AgentCore CLI: {result.stdout.strip()}")
-    except FileNotFoundError:
+    agentcore_path = shutil.which("agentcore")
+    if not agentcore_path:
         print("\nError: AgentCore CLI not found.")
         print("Install with: npm install -g @aws/agentcore")
+        sys.exit(1)
+    try:
+        result = subprocess.run(
+            [agentcore_path, "--version"],
+            capture_output=True, check=True, text=True, shell=False,  # noqa: S603
+        )
+        print(f"AgentCore CLI: {result.stdout.strip()}")
+    except subprocess.CalledProcessError as exc:
+        print(f"\nError: AgentCore CLI check failed (exit {exc.returncode}).")
         sys.exit(1)
 
 
@@ -138,13 +145,17 @@ def resolve_account_id() -> None:
     if target.get("account"):
         return
 
+    aws_path = shutil.which("aws")
+    if not aws_path:
+        print("Warning: AWS CLI not found. Fill agentcore/aws-targets.json manually.")
+        return
     try:
         result = subprocess.run(
-            ["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
-            capture_output=True, check=True, text=True,
+            [aws_path, "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
+            capture_output=True, check=True, text=True, shell=False,  # noqa: S603
         )
         account_id = result.stdout.strip()
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except subprocess.CalledProcessError:
         print("Warning: Could not resolve AWS account ID. Fill agentcore/aws-targets.json manually.")
         return
 

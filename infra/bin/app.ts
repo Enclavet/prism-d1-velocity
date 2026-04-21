@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
+import { Aspects } from 'aws-cdk-lib';
+import { AwsSolutionsChecks } from 'cdk-nag';
 import { MetricsPipelineStack } from '../lib/metrics-pipeline-stack';
 import { ApiStack } from '../lib/api-stack';
 import { DashboardStack } from '../lib/dashboard-stack';
@@ -46,5 +48,8 @@ const dashboardStack = new DashboardStack(app, 'PrismD1Dashboard', {
 });
 
 apiStack.addDependency(pipelineStack);
+
+// Enable cdk-nag AWS Solutions checks on all stacks
+Aspects.of(app).add(new AwsSolutionsChecks({ verbose: true }));
 
 app.synth();

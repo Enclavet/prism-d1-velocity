@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { Construct } from 'constructs';
+import { NagSuppressions } from 'cdk-nag';
 
 const METRIC_NAMESPACE = 'PRISM/D1/Velocity';
 const DEFAULT_PERIOD = cdk.Duration.hours(1);
@@ -8,6 +9,19 @@ const DEFAULT_PERIOD = cdk.Duration.hours(1);
 export class DashboardStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
+
+    // cdk-nag: CloudWatch alarms in this stack are for observability dashboards.
+    // SNS alarm actions are configured by operators post-deployment.
+    NagSuppressions.addStackSuppressions(this, [
+      {
+        id: 'AwsSolutions-SNS2',
+        reason: 'Alarm notification topics are configured post-deployment by operators.',
+      },
+      {
+        id: 'AwsSolutions-SNS3',
+        reason: 'Alarm notification topics are configured post-deployment by operators.',
+      },
+    ]);
 
     // =======================================================
     // Dashboard 1: Team Velocity
