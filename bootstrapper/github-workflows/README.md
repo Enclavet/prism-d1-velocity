@@ -62,14 +62,15 @@ GitHub Actions uses OpenID Connect (OIDC) to assume an AWS IAM role — no long-
    }
    ```
 
-### 2. Set Repository Variables
+### 2. Set Repository Secret
 
-In your GitHub repository, go to Settings > Secrets and variables > Actions > Variables, and add:
+In your GitHub repository, go to Settings > Secrets and variables > Actions > Secrets, and add:
 
-| Variable | Value |
+| Secret | Value |
 |---|---|
-| `PRISM_TEAM_ID` | Your team identifier (e.g., `team-payments`) |
-| `PRISM_AWS_ROLE_ARN` | The ARN of the IAM role created above |
+| `PRISM_METRICS_ROLE_ARN` | The ARN of the IAM role created above |
+
+The team ID is read automatically from `.prism/config.json` (created by `metric-hooks/install.sh`). No repository variables are needed.
 
 ### 3. Copy Workflows to Your Repo
 

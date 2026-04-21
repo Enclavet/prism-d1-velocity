@@ -50,7 +50,7 @@ cp /path/to/bootstrapper/github-workflows/prism-eval-gate.yml .github/workflows/
 cp /path/to/bootstrapper/github-workflows/prism-dora-weekly.yml .github/workflows/
 ```
 
-Configure the required repository variables (`PRISM_TEAM_ID`, `PRISM_AWS_ROLE_ARN`). See `github-workflows/README.md` for OIDC setup.
+Configure the required repository secret (`PRISM_METRICS_ROLE_ARN`). See `github-workflows/README.md` for OIDC setup. The team ID is read automatically from `.prism/config.json`.
 
 ### Step 4: Configure Eval Harness
 

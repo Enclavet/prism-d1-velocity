@@ -5,8 +5,8 @@
 # Required setup:
 #   - OIDC provider configured for GitHub Actions in your AWS account
 #   - IAM role with events:PutEvents permission
-#   - Repository variable PRISM_TEAM_ID
-#   - Repository variable PRISM_AWS_ROLE_ARN
+#   - Repository secret PRISM_METRICS_ROLE_ARN set to the OIDC role ARN
+#   - .prism/config.json committed to the repo (created by metric-hooks/install.sh)
 
 name: PRISM DORA Weekly Assessment
 
@@ -32,8 +32,19 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.PRISM_AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.PRISM_METRICS_ROLE_ARN }}
           aws-region: us-west-2
+
+      - name: Read team ID from .prism/config.json
+        id: prism-config
+        run: |
+          if [[ -f .prism/config.json ]]; then
+            TEAM_ID=$(jq -r '.team_id' .prism/config.json)
+          else
+            echo "::error::.prism/config.json not found. Run bootstrapper/metric-hooks/install.sh first."
+            exit 1
+          fi
+          echo "team_id=${TEAM_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Calculate DORA metrics (past 7 days)
         id: dora
@@ -170,7 +181,7 @@ jobs:
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           ASSESSMENT_EVENT=$(jq -n \
-            --arg team_id "${{ vars.PRISM_TEAM_ID }}" \
+            --arg team_id "${{ steps.prism-config.outputs.team_id }}" \
             --arg repo "${{ github.repository }}" \
             --arg timestamp "${TIMESTAMP}" \
             --argjson deploy_count "${{ steps.dora.outputs.deploy_count }}" \
@@ -237,7 +248,7 @@ jobs:
       - name: Emit tool breakdown and adoption metrics to CloudWatch
         run: |
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          TEAM_ID="${{ vars.PRISM_TEAM_ID }}"
+          TEAM_ID="${{ steps.prism-config.outputs.team_id }}"
           REPO="${{ github.repository }}"
           NAMESPACE="PRISM/D1/Velocity"
 

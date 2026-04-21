@@ -29,10 +29,10 @@ Part of the [PRISM Framework](../README.md) (Progressive Readiness Index for Sca
 
 ### Prerequisites
 
-Run the setup script to install and verify everything automatically:
+Run the prism-cli command to verify and setup everything:
 
 ```bash
-./scripts/setup.sh
+bash prism-cli.sh workshop verify-setup
 ```
 
 Or install manually:

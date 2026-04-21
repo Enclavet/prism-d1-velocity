@@ -2,8 +2,11 @@ import { execSync } from 'node:child_process';
 import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline';
+import { platform } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const IS_MAC = platform() === 'darwin';
 
 // --- Colors ---
 const GREEN = '\x1b[0;32m';
@@ -36,10 +39,6 @@ function heading(text: string) {
   console.log(`\n${BOLD}${text}${NC}`);
 }
 
-/**
- * Run a shell command and return { ok, stdout, stderr }.
- * Never throws — returns ok=false on failure.
- */
 function run(cmd: string) {
   try {
     const stdout = execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
@@ -49,15 +48,90 @@ function run(cmd: string) {
   }
 }
 
+// --- Linux package manager detection ---
+type LinuxPkgMgr = 'apt-get' | 'dnf' | 'yum' | 'pacman' | 'zypper' | null;
+
+function detectLinuxPkgMgr(): LinuxPkgMgr {
+  if (IS_MAC) return null;
+  for (const mgr of ['apt-get', 'dnf', 'yum', 'pacman', 'zypper'] as const) {
+    if (run(`command -v ${mgr}`).ok) return mgr;
+  }
+  return null;
+}
+
+const LINUX_PKG_MGR = detectLinuxPkgMgr();
+
+/**
+ * Returns the install command for a package on the current Linux distro.
+ * Package names can differ across distros — pass a map of overrides.
+ */
+function linuxInstallCmd(
+  pkg: string,
+  overrides?: Partial<Record<NonNullable<LinuxPkgMgr>, string>>
+): string {
+  const name = overrides?.[LINUX_PKG_MGR!] ?? pkg;
+  switch (LINUX_PKG_MGR) {
+    case 'apt-get': return `sudo apt-get update && sudo apt-get install -y ${name}`;
+    case 'dnf':     return `sudo dnf install -y ${name}`;
+    case 'yum':     return `sudo yum install -y ${name}`;
+    case 'pacman':  return `sudo pacman -S --noconfirm ${name}`;
+    case 'zypper':  return `sudo zypper install -y ${name}`;
+    default:        return `Install '${pkg}' using your system package manager`;
+  }
+}
+
+/** Returns the platform-appropriate install command for a package. */
+function installCmd(pkg: string, opts?: {
+  brew?: string;
+  overrides?: Partial<Record<NonNullable<LinuxPkgMgr>, string>>;
+}): string {
+  if (IS_MAC) return `brew install ${opts?.brew ?? pkg}`;
+  return linuxInstallCmd(pkg, opts?.overrides);
+}
+
+function runInstall(cmd: string): boolean {
+  try {
+    execSync(cmd, { encoding: 'utf8', stdio: 'inherit' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function commandExists(cmd: string) {
   return run(`command -v ${cmd}`).ok;
+}
+
+function prompt(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase());
+    });
+  });
+}
+
+async function offerInstall(name: string, installCmd: string): Promise<boolean> {
+  const answer = await prompt(`        Install ${name} now? [Y/n] `);
+  if (answer === '' || answer === 'y' || answer === 'yes') {
+    console.log(`        Running: ${installCmd}`);
+    if (runInstall(installCmd)) {
+      console.log(`        ${GREEN}✓ ${name} installed successfully.${NC}`);
+      return true;
+    } else {
+      console.log(`        ${RED}✗ Installation failed. Try manually: ${installCmd}${NC}`);
+      return false;
+    }
+  }
+  return false;
 }
 
 // -------------------------------------------------------------------
 // Checks
 // -------------------------------------------------------------------
 
-function checkAwsCli() {
+async function checkAwsCli(verifyOnly = false) {
   heading('1. AWS CLI & Credentials');
 
   if (commandExists('aws')) {
@@ -65,6 +139,18 @@ function checkAwsCli() {
     pass(`AWS CLI installed (${stdout.split('\n')[0]})`);
   } else {
     fail('AWS CLI not found', 'Install from https://aws.amazon.com/cli/');
+    if (!verifyOnly) {
+      if (IS_MAC) {
+        await offerInstall('AWS CLI', 'brew install awscli');
+      } else {
+        const cmd = installCmd('awscli', { overrides: { dnf: 'awscli2', yum: 'awscli' } });
+        if (LINUX_PKG_MGR) {
+          await offerInstall('AWS CLI', cmd);
+        } else {
+          console.log('        Follow: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html');
+        }
+      }
+    }
   }
 
   const sts = run('aws sts get-caller-identity --query Account --output text');
@@ -75,10 +161,9 @@ function checkAwsCli() {
   }
 }
 
-function checkBedrock() {
+async function checkBedrock() {
   heading('2. Amazon Bedrock Model Access');
 
-  // list-foundation-models shows the catalog; list-inference-profiles shows what you can actually invoke
   const models = run("aws bedrock list-foundation-models --query \"modelSummaries[?contains(modelId, 'anthropic.claude')].modelId\" --output text");
   let claudeModelIds: string[] = [];
 
@@ -93,14 +178,12 @@ function checkBedrock() {
     fail('Cannot query Bedrock models', 'Check AWS credentials and region (need us-west-2)');
   }
 
-  // Use inference profiles to find models we can actually invoke
   const profiles = run("aws bedrock list-inference-profiles --query \"inferenceProfileSummaries[?contains(inferenceProfileId, 'anthropic.claude')].inferenceProfileId\" --output text");
   let invocableIds: string[] = [];
   if (profiles.ok) {
     invocableIds = profiles.stdout.split(/\s+/).filter(Boolean);
   }
 
-  // Fall back to foundation model IDs if no inference profiles found
   const candidates = invocableIds.length > 0 ? invocableIds : claudeModelIds;
 
   if (candidates.length === 0) {
@@ -108,7 +191,6 @@ function checkBedrock() {
     return;
   }
 
-  // AWS CLI expects --body as fileb:// or base64; write to a temp file
   const bodyFile = '/tmp/prism-bedrock-request.json';
   const body = JSON.stringify({
     anthropic_version: 'bedrock-2023-05-31',
@@ -118,7 +200,7 @@ function checkBedrock() {
   writeFileSync(bodyFile, body);
 
   let invoked = false;
-  const errors = [];
+  const errors: { modelId: string; error: string }[] = [];
   for (const modelId of candidates) {
     const invoke = run(
       `aws bedrock-runtime invoke-model ` +
@@ -150,7 +232,7 @@ function checkBedrock() {
   }
 }
 
-function checkClaudeCode() {
+async function checkClaudeCode(verifyOnly = false) {
   heading('3. Claude Code CLI');
 
   if (commandExists('claude')) {
@@ -158,6 +240,9 @@ function checkClaudeCode() {
     pass(`Claude Code CLI installed (${stdout || 'version unknown'})`);
   } else {
     fail('Claude Code CLI not found', 'Run: curl -fsSL https://claude.ai/install.sh | bash');
+    if (!verifyOnly) {
+      await offerInstall('Claude Code CLI', 'curl -fsSL https://claude.ai/install.sh | bash');
+    }
   }
 
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
@@ -173,7 +258,7 @@ function checkClaudeCode() {
   }
 }
 
-function checkKiro() {
+async function checkKiro() {
   heading('4. Kiro IDE');
 
   if (commandExists('kiro')) {
@@ -184,7 +269,7 @@ function checkKiro() {
   }
 }
 
-function checkGit() {
+async function checkGit(verifyOnly = false) {
   heading('5. Git');
 
   if (commandExists('git')) {
@@ -195,15 +280,23 @@ function checkGit() {
       if (major >= 2 && minor >= 34) {
         pass(`${stdout} (>= 2.34 required for trailer support)`);
       } else {
-        fail(`Git version too old (${stdout})`, 'Need git >= 2.34. Run: brew install git (macOS) or apt-get install git (Linux)');
+        const cmd = installCmd('git');
+        fail(`Git version too old (${stdout})`, `Need git >= 2.34. Run: ${cmd}`);
+        if (!verifyOnly) {
+          await offerInstall('Git (latest)', cmd);
+        }
       }
     }
   } else {
-    fail('Git not found', 'Install git');
+    const cmd = installCmd('git');
+    fail('Git not found', `Run: ${cmd}`);
+    if (!verifyOnly) {
+      await offerInstall('Git', cmd);
+    }
   }
 }
 
-function checkNode() {
+async function checkNode(verifyOnly = false) {
   heading('6. Node.js & npm');
 
   if (commandExists('node')) {
@@ -213,9 +306,22 @@ function checkNode() {
       pass(`Node.js ${stdout} (>= 20 required)`);
     } else {
       fail(`Node.js too old (${stdout})`, 'Need Node.js >= 20. Use nvm: nvm install 20');
+      if (!verifyOnly && commandExists('nvm')) {
+        await offerInstall('Node.js 20 via nvm', 'nvm install 20');
+      }
     }
   } else {
     fail('Node.js not found', 'Install from https://nodejs.org/ or use nvm');
+    if (!verifyOnly) {
+      if (commandExists('nvm')) {
+        await offerInstall('Node.js 20 via nvm', 'nvm install 20');
+      } else {
+        const nvmInstall = 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash';
+        console.log(`        Tip: Install nvm first, then Node.js:`);
+        console.log(`          ${nvmInstall}`);
+        console.log(`          nvm install 20`);
+      }
+    }
   }
 
   if (commandExists('npm')) {
@@ -226,13 +332,26 @@ function checkNode() {
   }
 }
 
-function checkPython() {
+async function checkPython(verifyOnly = false) {
   heading('7. Python');
 
   const python = commandExists('python3') ? 'python3' : commandExists('python') ? 'python' : null;
 
   if (!python) {
-    fail('Python not found', 'Install Python >= 3.11 from https://www.python.org/ or use pyenv');
+    const cmd = installCmd('python3', {
+      brew: 'python@3.11',
+      overrides: {
+        'apt-get': 'python3.11 python3.11-venv',
+        dnf: 'python3.11',
+        yum: 'python3.11',
+        pacman: 'python',
+        zypper: 'python311',
+      },
+    });
+    fail('Python not found', `Install Python >= 3.11: ${cmd}`);
+    if (!verifyOnly) {
+      await offerInstall('Python 3.11', cmd);
+    }
     return;
   }
 
@@ -243,7 +362,20 @@ function checkPython() {
     if (major >= 3 && minor >= 11) {
       pass(`${stdout} (>= 3.11 required)`);
     } else {
-      fail(`Python too old (${stdout})`, 'Need Python >= 3.11. Use pyenv: pyenv install 3.11');
+      const cmd = installCmd('python3', {
+        brew: 'python@3.11',
+        overrides: {
+          'apt-get': 'python3.11 python3.11-venv',
+          dnf: 'python3.11',
+          yum: 'python3.11',
+          pacman: 'python',
+          zypper: 'python311',
+        },
+      });
+      fail(`Python too old (${stdout})`, `Need Python >= 3.11. Run: ${cmd}`);
+      if (!verifyOnly) {
+        await offerInstall('Python 3.11', cmd);
+      }
     }
   } else {
     fail(`Could not determine Python version (${stdout})`, 'Ensure python3 --version works');
@@ -255,46 +387,71 @@ function checkPython() {
     pass(`pip installed (${pipVersion.split(' ').slice(0, 2).join(' ')})`);
   } else {
     fail('pip not found', 'Install pip: python3 -m ensurepip --upgrade');
+    if (!verifyOnly) {
+      await offerInstall('pip', `${python} -m ensurepip --upgrade`);
+    }
   }
 }
 
-function checkUtilities() {
+async function checkUtilities(verifyOnly = false) {
   heading('8. Utilities');
 
   if (commandExists('jq')) {
     const { stdout } = run('jq --version');
     pass(`jq installed (${stdout})`);
   } else {
-    fail('jq not found', 'Run: brew install jq (macOS) or apt-get install jq (Linux)');
+    const cmd = installCmd('jq');
+    fail('jq not found', `Run: ${cmd}`);
+    if (!verifyOnly) {
+      await offerInstall('jq', cmd);
+    }
   }
 
   if (commandExists('curl')) {
     pass('curl installed');
   } else {
-    fail('curl not found', 'Install curl');
+    const cmd = installCmd('curl');
+    fail('curl not found', `Run: ${cmd}`);
+    if (!verifyOnly) {
+      await offerInstall('curl', cmd);
+    }
   }
 
   if (commandExists('bc')) {
     pass('bc installed');
   } else {
-    fail('bc not found', 'Run: brew install bc (macOS) or apt-get install bc (Linux)');
+    const cmd = installCmd('bc');
+    fail('bc not found', `Run: ${cmd}`);
+    if (!verifyOnly) {
+      await offerInstall('bc', cmd);
+    }
+  }
+
+  if (commandExists('gh')) {
+    const { stdout } = run('gh --version');
+    const version = stdout.split('\n')[0] || 'version unknown';
+    pass(`GitHub CLI installed (${version})`);
+  } else {
+    const cmd = installCmd('gh');
+    fail('GitHub CLI (gh) not found', `Run: ${cmd}`);
+    if (!verifyOnly) {
+      await offerInstall('GitHub CLI', cmd);
+    }
   }
 }
 
-function checkSampleApp() {
-  heading('9. Sample App');
+async function checkSampleApp(verifyOnly = false) {
+  heading('9. Sample App Dependencies');
 
-  const sampleAppDir = process.env.SAMPLE_APP_PATH || resolve(__dirname, '../../../../sample-app');
+  const sampleAppDir = resolve(__dirname, '../../../../sample-app');
 
-  if (existsSync(resolve(sampleAppDir, 'package.json'))) {
-    pass(`Sample app found at ${sampleAppDir}`);
-    if (existsSync(resolve(sampleAppDir, 'node_modules'))) {
-      pass('Sample app dependencies installed');
-    } else {
-      warn(`Sample app dependencies not installed. Run: cd ${sampleAppDir} && npm install`);
-    }
+  if (existsSync(resolve(sampleAppDir, 'node_modules'))) {
+    pass('Sample app dependencies installed');
   } else {
-    warn(`Sample app not found at ${sampleAppDir}. Clone it: git clone https://github.com/aws-samples/prism-d1-sample-app.git`);
+    warn('Sample app dependencies not installed.');
+    if (!verifyOnly) {
+      await offerInstall('sample app dependencies', `npm install --prefix ${sampleAppDir}`);
+    }
   }
 }
 
@@ -304,26 +461,47 @@ function checkSampleApp() {
 
 export default {
   description: 'Verify environment prerequisites for the workshop',
-  action() {
-    verifySetup();
+  options: [
+    { flags: '--skip-aws', description: 'Skip AWS credential and Bedrock checks (for offline prep)' },
+    { flags: '--skip-kiro', description: 'Skip Kiro IDE check' },
+    { flags: '--verify-only', description: 'Only verify, don\'t install anything' },
+  ],
+  async action(opts: { skipAws?: boolean; skipKiro?: boolean; verifyOnly?: boolean }) {
+    await verifySetup(opts);
   },
 };
 
-function verifySetup() {
+async function verifySetup(opts: { skipAws?: boolean; skipKiro?: boolean; verifyOnly?: boolean } = {}) {
+  const VERIFY_ONLY = opts.verifyOnly ?? false;
+
   console.log('');
   console.log(`${BOLD}================================================${NC}`);
   console.log(`${BOLD}  PRISM D1 Velocity - Environment Verification  ${NC}`);
   console.log(`${BOLD}================================================${NC}`);
 
-  checkAwsCli();
-  checkBedrock();
-  checkClaudeCode();
-  checkKiro();
-  checkGit();
-  checkNode();
-  checkPython();
-  checkUtilities();
-  checkSampleApp();
+  if (VERIFY_ONLY) {
+    console.log(`  ${YELLOW}(verify-only mode — skipping install prompts)${NC}`);
+  }
+  if (opts.skipAws) {
+    console.log(`  ${YELLOW}(skipping AWS / Bedrock checks)${NC}`);
+  }
+  if (opts.skipKiro) {
+    console.log(`  ${YELLOW}(skipping Kiro IDE check)${NC}`);
+  }
+
+  if (!opts.skipAws) {
+    await checkAwsCli(VERIFY_ONLY);
+    await checkBedrock();
+  }
+  await checkClaudeCode(VERIFY_ONLY);
+  if (!opts.skipKiro) {
+    await checkKiro();
+  }
+  await checkGit(VERIFY_ONLY);
+  await checkNode(VERIFY_ONLY);
+  await checkPython(VERIFY_ONLY);
+  await checkUtilities(VERIFY_ONLY);
+  await checkSampleApp(VERIFY_ONLY);
 
   console.log('');
   console.log(`${BOLD}================================================${NC}`);

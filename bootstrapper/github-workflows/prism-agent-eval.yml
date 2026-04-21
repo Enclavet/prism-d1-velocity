@@ -5,8 +5,8 @@
 # Required setup:
 #   - OIDC provider configured for GitHub Actions in your AWS account
 #   - IAM role with bedrock:InvokeModel and events:PutEvents permissions
-#   - Repository variable PRISM_TEAM_ID set to your team identifier
-#   - Repository variable PRISM_AWS_ROLE_ARN set to the OIDC role ARN
+#   - Repository secret PRISM_METRICS_ROLE_ARN set to the OIDC role ARN
+#   - .prism/config.json committed to the repo (created by metric-hooks/install.sh)
 #   - eval-harness/ directory copied into your repo
 #   - Agent entry point supports --mock flag for dry-run execution
 
@@ -40,8 +40,19 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.PRISM_AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.PRISM_METRICS_ROLE_ARN }}
           aws-region: us-west-2
+
+      - name: Read team ID from .prism/config.json
+        id: prism-config
+        run: |
+          if [[ -f .prism/config.json ]]; then
+            TEAM_ID=$(jq -r '.team_id' .prism/config.json)
+          else
+            echo "::error::.prism/config.json not found. Run bootstrapper/metric-hooks/install.sh first."
+            exit 1
+          fi
+          echo "team_id=${TEAM_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -248,7 +259,7 @@ jobs:
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           EVAL_EVENT=$(jq -n \
-            --arg team_id "${{ vars.PRISM_TEAM_ID }}" \
+            --arg team_id "${{ steps.prism-config.outputs.team_id }}" \
             --arg repo "${{ github.repository }}" \
             --arg timestamp "${TIMESTAMP}" \
             --argjson score "${{ steps.eval.outputs.score || 0 }}" \
