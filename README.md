@@ -64,7 +64,7 @@ Run the [PRISM Assessment](assessment/README.md) to determine maturity level and
 
 ### Run the Workshop
 
-Start with [Module 00: Prerequisites](workshop/00-prerequisites/README.md) and work through sequentially.
+Open the [AWS Workshop](https://studio.us-east-1.prod.workshops.aws/preview/d0a8b037-dfe0-4023-9ce2-f5de32ee4c67/builds/c24d36f6-fd95-477d-98da-3838ac74ee71) from your browser.
 
 ### Run the Sample Agent (No AWS Required)
 
