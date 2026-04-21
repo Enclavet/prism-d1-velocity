@@ -147,7 +147,7 @@ const PAGE_STYLE = `
   .checkbox-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
   .checkbox-row input{width:auto;margin:0}
   .notes{width:100%;min-height:60px;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;resize:vertical}
-  .hidden{display:none}
+  .hidden{display:none!important}
   .spinner{display:inline-block;width:18px;height:18px;border:3px solid #e2e8f0;border-top-color:#0066ff;border-radius:50%;animation:spin .6s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
 `;
