@@ -432,7 +432,16 @@ async function checkUtilities(verifyOnly = false) {
     const version = stdout.split('\n')[0] || 'version unknown';
     pass(`GitHub CLI installed (${version})`);
   } else {
-    const cmd = installCmd('gh');
+    let cmd: string;
+    if (IS_MAC) {
+      cmd = 'brew install gh';
+    } else if (LINUX_PKG_MGR === 'dnf') {
+      cmd = "sudo dnf install 'dnf-command(config-manager)' && sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo && sudo dnf install gh --repo gh-cli";
+    } else if (LINUX_PKG_MGR === 'yum') {
+      cmd = 'sudo yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo && sudo yum install gh --repo gh-cli';
+    } else {
+      cmd = installCmd('gh');
+    }
     fail('GitHub CLI (gh) not found', `Run: ${cmd}`);
     if (!verifyOnly) {
       await offerInstall('GitHub CLI', cmd);
