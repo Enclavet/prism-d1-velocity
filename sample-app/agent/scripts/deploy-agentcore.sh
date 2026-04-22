@@ -52,13 +52,13 @@ create_project() {
   rm -rf "$tmp_dir"
   mkdir -p "$tmp_dir"
 
-  if ! run_cmd agentcore create \
+  if ! (cd "$tmp_dir" && run_cmd agentcore create \
     --name "$AGENT_NAME" \
     --framework Strands \
     --protocol HTTP \
     --build Container \
     --model-provider Bedrock \
-    --memory shortTerm \
+    --memory shortTerm) \
     2>&1; then
     echo ""
     echo "agentcore create failed"
@@ -103,26 +103,39 @@ resolve_account_id() {
   local targets_path="$AGENT_DIR/agentcore/aws-targets.json"
   [[ ! -f "$targets_path" ]] && return
 
-  # Check if account is already set
-  local existing_account
+  # Check if all required fields are already set
+  local existing_account existing_region existing_name
   existing_account=$(jq -r '.[0].account // ""' "$targets_path" 2>/dev/null || echo "")
-  [[ -n "$existing_account" ]] && return
+  existing_region=$(jq -r '.[0].region // ""' "$targets_path" 2>/dev/null || echo "")
+  existing_name=$(jq -r '.[0].name // ""' "$targets_path" 2>/dev/null || echo "")
+  [[ -n "$existing_account" && -n "$existing_region" && -n "$existing_name" ]] && return
 
   if ! command -v aws &> /dev/null; then
     echo "Warning: AWS CLI not found. Fill agentcore/aws-targets.json manually."
     return
   fi
 
-  local account_id
+  local account_id region
   account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || {
     echo "Warning: Could not resolve AWS account ID. Fill agentcore/aws-targets.json manually."
     return
   }
 
+  region="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+  if [[ -z "$region" ]]; then
+    region=$(aws configure get region 2>/dev/null || echo "")
+  fi
+  if [[ -z "$region" ]]; then
+    region="us-west-2"
+    echo "  No AWS region configured, defaulting to $region"
+  fi
+
   local tmp
   tmp=$(mktemp)
-  jq --arg acct "$account_id" '.[0].account = $acct' "$targets_path" > "$tmp" && mv "$tmp" "$targets_path"
-  echo "  Resolved AWS account: $account_id"
+  jq --arg acct "$account_id" --arg rgn "$region" \
+    '.[0].account = $acct | .[0].region = $rgn | .[0].name = "default"' \
+    "$targets_path" > "$tmp" && mv "$tmp" "$targets_path"
+  echo "  Resolved AWS account: $account_id, region: $region"
 }
 
 # ---------------------------------------------------------------------------
