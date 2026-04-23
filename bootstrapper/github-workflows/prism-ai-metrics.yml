@@ -40,10 +40,9 @@ jobs:
         id: prism-config
         run: |
           if [[ -f .prism/config.json ]]; then
-            TEAM_ID=$(jq -r '.team_id' .prism/config.json)
+            TEAM_ID=$(jq -r '.team_id // ""' .prism/config.json 2>/dev/null || echo "")
           else
-            echo "::error::.prism/config.json not found. Run bootstrapper/metric-hooks/install.sh first."
-            exit 1
+            TEAM_ID=""
           fi
           echo "team_id=${TEAM_ID}" >> "$GITHUB_OUTPUT"
 
