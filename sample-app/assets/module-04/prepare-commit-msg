@@ -37,9 +37,15 @@ if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
   AI_CONFIDENCE="implementation"
   AI_SESSION="${CLAUDE_CODE_SESSION_ID}"
 
-  # Try to detect the model from Claude Code config
-  if command -v claude &> /dev/null; then
-    AI_MODEL=$(claude config get model 2>/dev/null || echo "unknown")
+  # Detect the model from Co-Authored-By trailer (e.g. "Claude Sonnet 4.5" -> "claude-sonnet-4.5")
+  CO_AUTHOR=$(echo "$COMMIT_MSG" | grep -i "^Co-Authored-By:.*Claude" | head -1 || true)
+  if [ -n "$CO_AUTHOR" ]; then
+    # Extract the name part before the email, e.g. "Claude Sonnet 4.5"
+    MODEL_NAME=$(echo "$CO_AUTHOR" | sed 's/^Co-Authored-By:\s*//i' | sed 's/\s*<.*$//' | xargs)
+    # Convert to kebab-case lowercase, e.g. "claude-sonnet-4.5"
+    AI_MODEL=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+  elif [ -n "${ANTHROPIC_MODEL:-}" ]; then
+    AI_MODEL="${ANTHROPIC_MODEL}"
   fi
 fi
 
