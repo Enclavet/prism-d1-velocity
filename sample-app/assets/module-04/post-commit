@@ -17,7 +17,7 @@ COMMIT_SUBJECT=$(git log -1 --format='%s' HEAD)
 # Extract trailers
 AI_ORIGIN=$(git log -1 --format='%(trailers:key=AI-Origin,valueonly)' HEAD | tr -d '[:space:]')
 AI_MODEL=$(git log -1 --format='%(trailers:key=AI-Model,valueonly)' HEAD | tr -d '[:space:]')
-AI_CONFIDENCE=$(git log -1 --format='%(trailers:key=AI-Confidence,valueonly)' HEAD | tr -d '[:space:]')
+AI_TOOL=$(git log -1 --format='%(trailers:key=AI-TOOL,valueonly)' HEAD | tr -d '[:space:]')
 AI_SESSION=$(git log -1 --format='%(trailers:key=AI-Session,valueonly)' HEAD | tr -d '[:space:]')
 SPEC_REF=$(git log -1 --format='%(trailers:key=Spec,valueonly)' HEAD | tr -d '[:space:]')
 
@@ -44,7 +44,7 @@ METRIC_JSON=$(cat <<EOF
   "branch": "${BRANCH_NAME}",
   "ai_origin": "${AI_ORIGIN:-unknown}",
   "ai_model": "${AI_MODEL:-}",
-  "ai_confidence": "${AI_CONFIDENCE:-}",
+  "ai_tool": "${AI_TOOL:-}",
   "ai_session": "${AI_SESSION:-}",
   "spec_ref": "${SPEC_REF:-}",
   "files_changed": ${FILES_CHANGED},

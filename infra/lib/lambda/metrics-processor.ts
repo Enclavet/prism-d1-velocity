@@ -71,23 +71,40 @@ const METRIC_NAMESPACE = process.env.METRIC_NAMESPACE ?? 'PRISM/D1/Velocity';
 // ---- Handler ----
 
 export async function handler(event: EventBridgeEvent): Promise<void> {
-  console.log('Received event:', JSON.stringify(event, null, 2));
+  console.log('[metrics-processor] Received event:', JSON.stringify(event, null, 2));
 
   const detailType = event['detail-type'];
   const detail = event.detail;
 
+  console.log(`[metrics-processor] detail-type=${detailType} team_id=${detail?.team_id} repo=${detail?.repo} timestamp=${detail?.timestamp}`);
+  console.log(`[metrics-processor] dora=${JSON.stringify(detail?.dora)} ai_dora=${JSON.stringify(detail?.ai_dora)} metric=${JSON.stringify(detail?.metric)}`);
+
   if (!detail.team_id || !detail.repo || !detail.timestamp) {
-    console.error('Missing required fields: team_id, repo, or timestamp');
+    console.error('[metrics-processor] VALIDATION FAILED: Missing required fields: team_id, repo, or timestamp');
     throw new Error('Event missing required fields');
   }
 
-  await Promise.all([
+  const results = await Promise.allSettled([
     writeEventToDynamo(detailType, detail),
     writeMetadataToDynamo(detailType, detail),
     publishCloudWatchMetrics(detailType, detail),
   ]);
 
-  console.log(`Successfully processed ${detailType} for ${detail.team_id}/${detail.repo}`);
+  results.forEach((result, idx) => {
+    const labels = ['writeEventToDynamo', 'writeMetadataToDynamo', 'publishCloudWatchMetrics'];
+    if (result.status === 'fulfilled') {
+      console.log(`[metrics-processor] ${labels[idx]} succeeded`);
+    } else {
+      console.error(`[metrics-processor] ${labels[idx]} FAILED:`, result.reason);
+    }
+  });
+
+  const failures = results.filter((r) => r.status === 'rejected');
+  if (failures.length > 0) {
+    throw new Error(`${failures.length} operation(s) failed — check logs above`);
+  }
+
+  console.log(`[metrics-processor] Successfully processed ${detailType} for ${detail.team_id}/${detail.repo}`);
 }
 
 // ---- DynamoDB events ----
@@ -96,6 +113,7 @@ async function writeEventToDynamo(
   detailType: string,
   detail: MetricDetail,
 ): Promise<void> {
+  console.log(`[writeEventToDynamo] Writing event: pk=${detail.team_id}#${detail.repo} sk=${detail.timestamp} type=${detailType}`);
   const ttl = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60; // 365 days from now
 
   const data: Record<string, unknown> = {
@@ -137,6 +155,7 @@ async function writeMetadataToDynamo(
   detailType: string,
   detail: MetricDetail,
 ): Promise<void> {
+  console.log(`[writeMetadataToDynamo] Writing metadata: team_id=${detail.team_id} repo=${detail.repo} type=${detailType}`);
   const item: Record<string, { S?: string; N?: string }> = {
     team_id: { S: detail.team_id },
     repo: { S: detail.repo },
@@ -198,6 +217,10 @@ async function publishCloudWatchMetrics(
   detailType: string,
   detail: MetricDetail,
 ): Promise<void> {
+  console.log(`[publishCloudWatchMetrics] Starting for ${detailType}, namespace=${METRIC_NAMESPACE}`);
+  console.log(`[publishCloudWatchMetrics] dora fields: deployment_frequency=${detail.dora?.deployment_frequency} lead_time_seconds=${detail.dora?.lead_time_seconds} change_failure_rate=${detail.dora?.change_failure_rate} mttr_seconds=${detail.dora?.mttr_seconds}`);
+  console.log(`[publishCloudWatchMetrics] ai_dora fields: ai_acceptance_rate=${detail.ai_dora?.ai_acceptance_rate} ai_to_merge_ratio=${detail.ai_dora?.ai_to_merge_ratio} eval_gate_pass_rate=${detail.ai_dora?.eval_gate_pass_rate}`);
+
   const sharedDimensions = [
     { Name: 'TeamId', Value: detail.team_id },
     { Name: 'Repository', Value: detail.repo },
@@ -369,18 +392,32 @@ async function publishCloudWatchMetrics(
   metricData.push(...dimensionlessMetrics);
 
   if (metricData.length === 0) {
+    console.log('[publishCloudWatchMetrics] No metrics to publish — metricData is empty');
     return;
   }
+
+  console.log(`[publishCloudWatchMetrics] Publishing ${metricData.length} metric data points`);
+  metricData.forEach((m, i) => {
+    console.log(`[publishCloudWatchMetrics]   [${i}] ${m.MetricName}=${m.Value} unit=${m.Unit} dims=${JSON.stringify(m.Dimensions)}`);
+  });
 
   // CloudWatch accepts max 1000 metric data points per call; batch in chunks of 25
   const batchSize = 25;
   for (let i = 0; i < metricData.length; i += batchSize) {
-    await cloudwatchClient.send(
-      new PutMetricDataCommand({
-        Namespace: METRIC_NAMESPACE,
-        MetricData: metricData.slice(i, i + batchSize),
-      }),
-    );
+    const batch = metricData.slice(i, i + batchSize);
+    console.log(`[publishCloudWatchMetrics] Sending batch ${Math.floor(i / batchSize) + 1} with ${batch.length} metrics`);
+    try {
+      await cloudwatchClient.send(
+        new PutMetricDataCommand({
+          Namespace: METRIC_NAMESPACE,
+          MetricData: batch,
+        }),
+      );
+      console.log(`[publishCloudWatchMetrics] Batch ${Math.floor(i / batchSize) + 1} sent successfully`);
+    } catch (err) {
+      console.error(`[publishCloudWatchMetrics] Batch ${Math.floor(i / batchSize) + 1} FAILED:`, err);
+      throw err;
+    }
   }
 }
 
