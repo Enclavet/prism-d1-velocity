@@ -44,6 +44,9 @@ jobs:
           else
             TEAM_ID=""
           fi
+          if [[ -z "${TEAM_ID}" ]]; then
+            TEAM_ID="no_team"
+          fi
           echo "team_id=${TEAM_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Calculate AI-to-merge ratio
@@ -152,7 +155,6 @@ jobs:
             --argjson ai_generated "${{ steps.ai-ratio.outputs.ai_generated }}" \
             --argjson ai_assisted "${{ steps.ai-ratio.outputs.ai_assisted }}" \
             --argjson lead_time_seconds "${{ steps.lead-time.outputs.lead_time_seconds }}" \
-            --argjson lead_time_hours "${{ steps.lead-time.outputs.lead_time_hours }}" \
             --arg pr_number "${{ github.event.pull_request.number }}" \
             --arg pr_author "${{ github.event.pull_request.user.login }}" \
             --argjson approved "${{ steps.acceptance.outputs.approved }}" \
@@ -175,8 +177,8 @@ jobs:
                 "origin": (if $ai_ratio > 0.5 then "ai-assisted" elif $ai_ratio > 0 then "ai-assisted" else "human" end)
               },
               "dora": {
-                "lead_time_seconds": $lead_time_seconds,
-                "lead_time_hours": $lead_time_hours
+                "deployment_frequency": 1,
+                "lead_time_seconds": $lead_time_seconds
               },
               "ai_dora": {
                 "ai_to_merge_ratio": $ai_ratio,
@@ -211,8 +213,6 @@ jobs:
             --arg team_id "${{ steps.prism-config.outputs.team_id }}" \
             --arg repo "${{ github.repository }}" \
             --arg timestamp "${TIMESTAMP}" \
-            --argjson lead_time_hours "${{ steps.lead-time.outputs.lead_time_hours }}" \
-            --arg sha "${{ github.event.pull_request.merge_commit_sha }}" \
             '{
               "team_id": $team_id,
               "repo": $repo,
@@ -224,8 +224,7 @@ jobs:
                 "unit": "count"
               },
               "dora": {
-                "lead_time_hours": $lead_time_hours,
-                "deploy_sha": $sha
+                "deployment_frequency": 1
               }
             }')
 

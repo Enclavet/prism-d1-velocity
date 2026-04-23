@@ -22,13 +22,6 @@ learning AI-native development lifecycle practices.
 - Use conventional commits: `feat|fix|docs|refactor|test(scope): description`
 - Reference the spec file in the commit body: `Spec: specs/<filename>.md`
 - Keep commits atomic -- one logical change per commit
-- REQUIRED: Include these AI metadata trailers in every commit:
-  ```
-  Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
-  AI-Origin: ai-generated
-  AI-Tool: claude-code
-  AI-Model: anthropic.claude-sonnet-4-5-20250929
-  ```
 
 ## Testing
 - Run tests with: `npm test`
